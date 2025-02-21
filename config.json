@@ -1,0 +1,10 @@
+{
+    "content_type": "photo_with_text_button",
+    "text": "Тест",
+    "button_text": "Кнопка",
+    "button_url": "https://www.deepseek.com",
+    "photo": "AgACAgIAAxkBAAIEcme4czgEvJ-wbaND_lrixz4G9GTeAAJp5TEbfHPBSVP7jgzAMUXMAQADAgADeQADNgQ",
+    "video": "BAACAgIAAxkBAAICTme3TtROwyTEkp_jUzedqsWVwoJTAAKuZQAC8qI4SyhqzA7-QSkuNgQ",
+    "voice": null,
+    "document": "BQACAgIAAxkBAAICKWe3OYKCBD8GVX16YGZ8nAFiCbBoAAKKYwAC7CmxSRoVaKAqlIusNgQ"
+}
