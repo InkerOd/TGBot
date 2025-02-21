@@ -7,7 +7,8 @@ import threading
 from datetime import datetime
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
-TOKEN = "7346650474:AAHiw9SRCpJV09cqRFrgNZg66OU6-oU3WDU"
+BOT_TOKEN = os.getenv("BOT_TOKEN")  # Получаем токен из переменных окружения
+bot = telebot.TeleBot(BOT_TOKEN)
 
 FIRST_VIDEO_URL = "https://drive.google.com/file/d/1hWgxrGfhDbNFpQB_iSCUKP_k69MtGIJodw/view?usp=drive_link"
 
