@@ -7,8 +7,11 @@ import threading
 from datetime import datetime
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # Получаем токен из переменных окружения
+BOT_TOKEN = os.getenv("BOT_TOKEN")  # Важно: название должно совпадать с Render
 bot = telebot.TeleBot(BOT_TOKEN)
+
+if not BOT_TOKEN:
+    raise ValueError("Переменная окружения BOT_TOKEN не установлена!")
 
 FIRST_VIDEO_URL = "https://drive.google.com/file/d/1hWgxrGfhDbNFpQB_iSCUKP_k69MtGIJodw/view?usp=drive_link"
 
