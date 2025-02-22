@@ -4,6 +4,7 @@ import os
 import schedule
 import time
 import threading
+from flask import Flask
 from datetime import datetime
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
@@ -13,6 +14,16 @@ if TOKEN is None:
     raise ValueError("BOT_TOKEN не найден! Убедитесь, что переменная окружения установлена.")
 
 bot = telebot.TeleBot(TOKEN)
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "I'm alive!"
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))  # Render задает PORT автоматически
+    app.run(host='0.0.0.0', port=port)
 
 FIRST_VIDEO_URL = "https://drive.google.com/file/d/1hWgxrGfhDbNFpQB_iSCUKP_k69MtGIJodw/view?usp=drive_link"
 
