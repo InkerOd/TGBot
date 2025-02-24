@@ -7,7 +7,7 @@ import threading
 from datetime import datetime
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
-TOKEN = "7346650474:AAHiw9SRCpJV09cqRFrgNZg66OU6-oU3WDU"
+TOKEN = ""
 
 FIRST_VIDEO_URL = "https://drive.google.com/file/d/1hWgxrGfhDbNFpQB_iSCUKP_k69MtGIJodw/view?usp=drive_link"
 
@@ -19,7 +19,7 @@ users = set()
 CONFIG_FILE = 'config.json'
 
 # Список администраторов
-administrators = {447640188, 600164937, 339175430}
+administrators = {}
 
 # Функция загрузки пользователей из файла
 def load_users():
