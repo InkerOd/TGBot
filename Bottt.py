@@ -332,23 +332,23 @@ def delay_message(message):
         bot.reply_to(message, "У вас нет прав для выполнения этой команды.")
         return
 
-    # Запрашиваем тип контента
     menu = (
-        "Выберите тип контента:\n"
+        "Выберите тип контента для отложенной отправки:\n"
         "1. Текст\n"
         "2. Текст с кнопкой\n"
         "3. Текст с видео\n"
+        "4. Текст с видео и кнопкой\n"
         "5. Текст с голосовым сообщением\n"
         "6. Текст с файлом\n"
         "7. Картинка с текстом\n"
+        "8. Картинка с текстом и кнопкой\n"
         "9. Текст и кнопка с кодовым словом\n"
         "10. Картинка и текст и кнопка с кодовым словом"
     )
     bot.reply_to(message, menu)
-    bot.register_next_step_handler(message, process_delay_content_type)
+    bot.register_next_step_handler(message, process_content_type_for_delay)
 
-
-def process_delay_content_type(message):
+def process_content_type_for_delay(message):
     content_type = message.text.strip().lower()
     valid_types = {
         "1": "text",
@@ -364,11 +364,53 @@ def process_delay_content_type(message):
     }
 
     if content_type not in valid_types:
-        bot.reply_to(message, "❌ Некорректный тип контента. Попробуйте снова.")
+        bot.reply_to(message, "❌ Некорректный тип контента")
         return
 
-    # Сохраняем выбранный тип контента
     context = {"content_type": valid_types[content_type]}
+
+    if "photo" in context["content_type"]:
+        bot.reply_to(message, "📤 Пожалуйста, прикрепите фото.")
+        bot.register_next_step_handler(message, lambda m: process_photo_for_delay(m, context))
+    else:
+        bot.reply_to(message, "📝 Введите основной текст:")
+        bot.register_next_step_handler(message, lambda m: process_main_text_for_delay(m, context))
+
+def process_photo_for_delay(message, context):
+    if message.content_type != "photo":
+        bot.reply_to(message, "❌ Пожалуйста, прикрепите фото")
+        return
+
+    context["photo"] = message.photo[-1].file_id
+    bot.reply_to(message, "📝 Введите основной текст:")
+    bot.register_next_step_handler(message, lambda m: process_main_text_for_delay(m, context))
+
+def process_main_text_for_delay(message, context):
+    context["text"] = message.text
+
+    if any(t in context["content_type"] for t in ["button", "keyword_button"]):
+        bot.reply_to(message, "📝 Введите текст кнопки:")
+        bot.register_next_step_handler(message, lambda m: process_button_text_for_delay(m, context))
+    else:
+        schedule_delayed_message(message, context)
+
+def process_button_text_for_delay(message, context):
+    context["button_text"] = message.text
+
+    if "keyword_button" in context["content_type"]:
+        bot.reply_to(message, "📝 Введите кодовые слова через запятую:")
+        bot.register_next_step_handler(message, lambda m: process_button_keywords_for_delay(m, context))
+    else:
+        bot.reply_to(message, "📝 Введите URL кнопки:")
+        bot.register_next_step_handler(message, lambda m: process_button_url_for_delay(m, context))
+
+def process_button_keywords_for_delay(message, context):
+    context["button_keywords"] = message.text
+    schedule_delayed_message(message, context)
+
+def process_button_url_for_delay(message, context):
+    context["button_url"] = message.text
+    schedule_delayed_message(message, context)
 
     # Запрашиваем основной текст, если он нужен
     if any(t in context["content_type"] for t in ["text", "photo", "video", "voice", "document"]):
@@ -530,28 +572,28 @@ def send_delayed_content(context):
 
 
 @bot.message_handler(commands=['send_all'])
-def send_any_content(message):
+def send_all(message):
     if message.chat.id not in administrators:
         bot.reply_to(message, "У вас нет прав для выполнения этой команды.")
         return
 
-    # Запрашиваем тип контента
     menu = (
-        "Выберите тип контента:\n"
+        "Выберите тип контента для отправки всем пользователям:\n"
         "1. Текст\n"
         "2. Текст с кнопкой\n"
         "3. Текст с видео\n"
+        "4. Текст с видео и кнопкой\n"
         "5. Текст с голосовым сообщением\n"
         "6. Текст с файлом\n"
         "7. Картинка с текстом\n"
+        "8. Картинка с текстом и кнопкой\n"
         "9. Текст и кнопка с кодовым словом\n"
         "10. Картинка и текст и кнопка с кодовым словом"
     )
     bot.reply_to(message, menu)
-    bot.register_next_step_handler(message, process_send_content_type)
+    bot.register_next_step_handler(message, process_content_type_for_all)
 
-
-def process_send_content_type(message):
+def process_content_type_for_all(message):
     content_type = message.text.strip().lower()
     valid_types = {
         "1": "text",
@@ -567,11 +609,53 @@ def process_send_content_type(message):
     }
 
     if content_type not in valid_types:
-        bot.reply_to(message, "❌ Некорректный тип контента. Попробуйте снова.")
+        bot.reply_to(message, "❌ Некорректный тип контента")
         return
 
-    # Сохраняем выбранный тип контента
     context = {"content_type": valid_types[content_type]}
+
+    if "photo" in context["content_type"]:
+        bot.reply_to(message, "📤 Пожалуйста, прикрепите фото.")
+        bot.register_next_step_handler(message, lambda m: process_photo_for_all(m, context))
+    else:
+        bot.reply_to(message, "📝 Введите основной текст:")
+        bot.register_next_step_handler(message, lambda m: process_main_text_for_all(m, context))
+
+def process_photo_for_all(message, context):
+    if message.content_type != "photo":
+        bot.reply_to(message, "❌ Пожалуйста, прикрепите фото")
+        return
+
+    context["photo"] = message.photo[-1].file_id
+    bot.reply_to(message, "📝 Введите основной текст:")
+    bot.register_next_step_handler(message, lambda m: process_main_text_for_all(m, context))
+
+def process_main_text_for_all(message, context):
+    context["text"] = message.text
+
+    if any(t in context["content_type"] for t in ["button", "keyword_button"]):
+        bot.reply_to(message, "📝 Введите текст кнопки:")
+        bot.register_next_step_handler(message, lambda m: process_button_text_for_all(m, context))
+    else:
+        send_content_to_all(message, context)
+
+def process_button_text_for_all(message, context):
+    context["button_text"] = message.text
+
+    if "keyword_button" in context["content_type"]:
+        bot.reply_to(message, "📝 Введите кодовые слова через запятую:")
+        bot.register_next_step_handler(message, lambda m: process_button_keywords_for_all(m, context))
+    else:
+        bot.reply_to(message, "📝 Введите URL кнопки:")
+        bot.register_next_step_handler(message, lambda m: process_button_url_for_all(m, context))
+
+def process_button_keywords_for_all(message, context):
+    context["button_keywords"] = message.text
+    send_content_to_all(message, context)
+
+def process_button_url_for_all(message, context):
+    context["button_url"] = message.text
+    send_content_to_all(message, context)
 
     # Запрашиваем основной текст, если он нужен
     if any(t in context["content_type"] for t in ["text", "photo", "video", "voice", "document"]):
@@ -735,9 +819,31 @@ def create_magnet(message):
     if message.chat.id not in administrators:
         bot.reply_to(message, "У вас нет прав для выполнения этой команды.")
         return
+    
+    bot.reply_to(message, "Придумайте кодовое слово:")
+    bot.register_next_step_handler(message, process_magnet_keyword)
 
+def process_magnet_keyword(message):
+    keyword = message.text.strip().lower()
+    if not keyword:
+        bot.reply_to(message, "❌ Кодовое слово не может быть пустым.")
+        return
+    
+    # Сохраняем кодовое слово в контексте
+    config = load_config()
+    if "magnets" not in config:
+        config["magnets"] = {}
+    
+    if keyword in config["magnets"]:
+        bot.reply_to(message, f"❌ Кодовое слово '{keyword}' уже существует.")
+        return
+    
+    config["magnets"][keyword] = {}
+    save_config(config)
+    
+    # Запрашиваем тип контента
     menu = (
-        "Выберите тип контента для магнита:\n"
+        "Выберите тип контента:\n"
         "1. Текст\n"
         "2. Текст с кнопкой\n"
         "3. Текст с видео\n"
@@ -745,14 +851,12 @@ def create_magnet(message):
         "5. Текст с голосовым сообщением\n"
         "6. Текст с файлом\n"
         "7. Картинка с текстом\n"
-        "8. Картинка с текстом и кнопкой\n"
-        "9. Текст и кнопка с кодовым словом\n"
-        "10. Картинка и текст и кнопка с кодовым словом"
+        "8. Картинка с текстом и кнопкой"
     )
     bot.reply_to(message, menu)
-    bot.register_next_step_handler(message, process_content_type_for_magnet)
+    bot.register_next_step_handler(message, lambda m: process_magnet_content_type(m, keyword))
 
-def process_content_type_for_magnet(message):
+def process_magnet_content_type(message, keyword):
     content_type = message.text.strip().lower()
     valid_types = {
         "1": "text",
@@ -762,74 +866,16 @@ def process_content_type_for_magnet(message):
         "5": "text_with_voice",
         "6": "text_with_document",
         "7": "photo_with_text",
-        "8": "photo_with_text_button",
-        "9": "text_with_keyword_button",
-        "10": "photo_with_text_keyword_button"
+        "8": "photo_with_text_button"
     }
-
+    
     if content_type not in valid_types:
         bot.reply_to(message, "❌ Некорректный тип контента")
         return
-
-    context = {"content_type": valid_types[content_type]}
-
-    bot.reply_to(message, "📝 Введите имя для магнита:")
-    bot.register_next_step_handler(message, lambda m: process_magnet_name(m, context))
-
-def process_magnet_name(message, context):
-    context["keyword"] = message.text.strip()
-
-    if "photo" in context["content_type"]:
-        bot.reply_to(message, "📤 Пожалуйста, прикрепите фото.")
-        bot.register_next_step_handler(message, lambda m: process_photo_for_magnet(m, context))
-    else:
-        bot.reply_to(message, "📝 Введите основной текст:")
-        bot.register_next_step_handler(message, lambda m: process_main_text_for_magnet(m, context))
-
-def process_photo_for_magnet(message, context):
-    if message.content_type != "photo":
-        bot.reply_to(message, "❌ Пожалуйста, прикрепите фото")
-        return
-
-    context["photo"] = message.photo[-1].file_id
-    bot.reply_to(message, "📝 Введите основной текст:")
-    bot.register_next_step_handler(message, lambda m: process_main_text_for_magnet(m, context))
-
-def process_main_text_for_magnet(message, context):
-    context["text"] = message.text
-
-    if any(t in context["content_type"] for t in ["button", "keyword_button"]):
-        bot.reply_to(message, "📝 Введите текст кнопки:")
-        bot.register_next_step_handler(message, lambda m: process_button_text_for_magnet(m, context))
-    else:
-        save_magnet(message, context)
-
-def process_button_text_for_magnet(message, context):
-    context["button_text"] = message.text
-
-    if "keyword_button" in context["content_type"]:
-        bot.reply_to(message, "📝 Введите кодовые слова через запятую:")
-        bot.register_next_step_handler(message, lambda m: process_button_keywords_for_magnet(m, context))
-    else:
-        bot.reply_to(message, "📝 Введите URL кнопки:")
-        bot.register_next_step_handler(message, lambda m: process_button_url_for_magnet(m, context))
-
-def process_button_keywords_for_magnet(message, context):
-    context["button_keywords"] = message.text
-    save_magnet(message, context)
-
-def process_button_url_for_magnet(message, context):
-    context["button_url"] = message.text
-    save_magnet(message, context)
-
-def save_magnet(message, context):
+    
     config = load_config()
-    keyword = context.get("keyword")
-    
-    config.setdefault("magnets", {})[keyword] = context
+    config["magnets"][keyword]["content_type"] = valid_types[content_type]
     save_config(config)
-    bot.reply_to(message, f"✅ Магнит '{keyword}' успешно создан!")
-    
     
     # Запрашиваем дополнительные данные в зависимости от типа контента
     if any(t in config["magnets"][keyword]["content_type"] for t in ["text", "photo", "video", "voice", "document"]):
