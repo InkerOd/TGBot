@@ -128,6 +128,14 @@ def send_welcome(message):
         elif config["content_type"] == "photo_with_text_button":
             bot.send_photo(user_id, config["photo"], caption=config["text"], reply_markup=markup)
         
+        elif config["content_type"] == "text_with_keyword_button":
+            markup.add(InlineKeyboardButton(config["button_text"], callback_data=config["button_keywords"]))
+            bot.send_message(user_id, config["text"], reply_markup=markup)
+        
+        elif config["content_type"] == "photo_with_text_keyword_button":
+            markup.add(InlineKeyboardButton(config["button_text"], callback_data=config["button_keywords"]))
+            bot.send_photo(user_id, config["photo"], caption=config["text"], reply_markup=markup)
+        
         else:
             bot.send_message(user_id, "Контент для команды /start не настроен.")
     
@@ -156,7 +164,9 @@ def set_start_content(message):
         "5. Текст с голосовым сообщением\n"
         "6. Текст с файлом\n"
         "7. Картинка с текстом\n"
-        "8. Картинка с текстом и кнопкой"
+        "8. Картинка с текстом и кнопкой\n"
+        "9. Текст и кнопка с кодовым словом\n"
+        "10. Картинка и текст и кнопка с кодовым словом"
     )
     bot.reply_to(message, menu)
     bot.register_next_step_handler(message, process_content_type)
@@ -171,7 +181,9 @@ def process_content_type(message):
         "5": "text_with_voice",
         "6": "text_with_document",
         "7": "photo_with_text",
-        "8": "photo_with_text_button"
+        "8": "photo_with_text_button",
+        "9": "text_with_keyword_button",
+        "10": "photo_with_text_keyword_button"
     }
     
     if content_type not in valid_types:
@@ -194,7 +206,7 @@ def process_content_type(message):
 def process_main_text(message, config):
     config["text"] = message.text
     
-    if config["content_type"] in ["text_with_button", "text_with_video_button", "photo_with_text_button"]:
+    if config["content_type"] in ["text_with_button", "text_with_video_button", "photo_with_text_button", "text_with_keyword_button", "photo_with_text_keyword_button"]:
         bot.reply_to(message, "🖋 Введите текст для кнопки:")
         bot.register_next_step_handler(message, lambda m: process_button_text(m, config))
     
@@ -210,7 +222,7 @@ def process_main_text(message, config):
         bot.reply_to(message, "📎 Отправьте файл:")
         bot.register_next_step_handler(message, lambda m: process_document(m, config))
     
-    elif config["content_type"] in ["photo_with_text", "photo_with_text_button"]:
+    elif config["content_type"] in ["photo_with_text", "photo_with_text_button", "photo_with_text_keyword_button"]:
         bot.reply_to(message, "🖼 Отправьте фото:")
         bot.register_next_step_handler(message, lambda m: process_photo(m, config))
     
@@ -220,8 +232,18 @@ def process_main_text(message, config):
 
 def process_button_text(message, config):
     config["button_text"] = message.text
-    bot.reply_to(message, "🔗 Введите ссылку для кнопки:")
-    bot.register_next_step_handler(message, lambda m: process_button_url(m, config))
+    
+    if config["content_type"] in ["text_with_keyword_button", "photo_with_text_keyword_button"]:
+        bot.reply_to(message, "🔗 Введите кодовые слова для кнопки через запятую:")
+        bot.register_next_step_handler(message, lambda m: process_button_keywords(m, config))
+    else:
+        bot.reply_to(message, "🔗 Введите ссылку для кнопки:")
+        bot.register_next_step_handler(message, lambda m: process_button_url(m, config))
+
+def process_button_keywords(message, config):
+    config["button_keywords"] = message.text.lower().replace(" ", "")
+    save_config(config)
+    bot.reply_to(message, "✅ Конфигурация обновлена!")
 
 def process_button_url(message, config):
     config["button_url"] = message.text
@@ -233,7 +255,7 @@ def process_photo(message, config):
         bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте фото.")
         return
     config["photo"] = message.photo[-1].file_id
-    if config["content_type"] == "photo_with_text_button":
+    if config["content_type"] in ["photo_with_text_button", "photo_with_text_keyword_button"]:
         bot.reply_to(message, "🖋 Введите текст для кнопки:")
         bot.register_next_step_handler(message, lambda m: process_button_text(m, config))
     else:
@@ -267,7 +289,6 @@ def process_document(message, config):
     config["document"] = message.document.file_id
     save_config(config)
     bot.reply_to(message, "✅ Конфигурация обновлена!")
-
 
 @bot.message_handler(commands=['add_admin'])
 def add_admin(message):
