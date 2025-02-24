@@ -1,10 +1,35 @@
 {
-    "content_type": "photo_with_text_button",
-    "text": "Тест",
-    "button_text": "Кнопка",
-    "button_url": "https://www.deepseek.com",
-    "photo": "AgACAgIAAxkBAAIEcme4czgEvJ-wbaND_lrixz4G9GTeAAJp5TEbfHPBSVP7jgzAMUXMAQADAgADeQADNgQ",
-    "video": "BAACAgIAAxkBAAICTme3TtROwyTEkp_jUzedqsWVwoJTAAKuZQAC8qI4SyhqzA7-QSkuNgQ",
-    "voice": null,
-    "document": "BQACAgIAAxkBAAICKWe3OYKCBD8GVX16YGZ8nAFiCbBoAAKKYwAC7CmxSRoVaKAqlIusNgQ"
+    "content_type": "photo_with_text_keyword_button",
+    "text": "Текст",
+    "photo": "AgACAgIAAxkBAAIBY2e7bgpq7rK307QbYo2qYsxOpi_HAAKW7zEbZNzgSfrAusms7pkDAQADAgADeQADNgQ",
+    "button_text": "Кока",
+    "keywords": [
+        "денис",
+        "вита"
+    ],
+    "magnets": {
+        "денис": {
+            "content_type": "photo_with_text",
+            "text": "Денис",
+            "photo": "AgACAgIAAxkBAAIBl2e7cAS5fRhYZedfTWJUQwmRukmwAAKl7zEbZNzgSRLsI_Eld9izAQADAgADeQADNgQ"
+        },
+        "вита": {
+            "content_type": "photo_with_text",
+            "text": "Красотка",
+            "photo": "AgACAgIAAxkBAAIBo2e7cDT8Kzet0VgXtiI3G8LeErY4AAKo7zEbZNzgSeB5gGN-teLDAQADAgADeQADNgQ"
+        },
+        "магнит": {
+            "content_type": "photo_with_text_keyword_button",
+            "keyword": "магнит",
+            "photo": "AgACAgIAAxkBAAID3me8dzgtt7nHoo_facvvfxGs19ucAAJOAzIbpqXgSVnXAuGOdMGMAQADAgADeQADNgQ",
+            "text": "текст",
+            "button_text": "кнопка",
+            "button_keywords": "денис, вита"
+        },
+        "стол": {
+            "content_type": "text",
+            "text": "текст"
+        },
+        "/create_magnet": {}
+    }
 }
