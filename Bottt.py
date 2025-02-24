@@ -15,6 +15,9 @@ FIRST_VIDEO_URL = "https://drive.google.com/file/d/1hWgxrGfhDbNFpQB_iSCUKP_k69Mt
 USERS_FILE = 'users.json'
 users = set()
 
+with open('config.json', 'r', encoding='utf-8') as config_file:
+    config = json.load(config_file)
+
 # Путь к файлу конфигурации
 CONFIG_FILE = 'config.json'
 
@@ -80,6 +83,19 @@ def check_cancel(message, next_step_handler, *args):
 
 # Обновленный обработчик /start
 @bot.message_handler(commands=['start'])
+def handle_start(message):
+    # Получаем параметр, переданный через deep link
+    param = message.text.split(' ')[1] if len(message.text.split(' ')) > 1 else None
+    
+    if param:
+        if param in config:
+            # Отправляем контент, соответствующий кодовому слову
+            bot.reply_to(message, f"Контент для {param}: {config[param]}")
+        else:
+            bot.reply_to(message, "Кодовое слово не найдено в конфигурации.")
+    else:
+        bot.reply_to(message, "Привет! Вы запустили бота без параметра.")
+
 def send_welcome(message):
     user_id = message.chat.id
     if user_id not in users:
@@ -89,9 +105,14 @@ def send_welcome(message):
     config = load_config()
     markup = InlineKeyboardMarkup()
     
+    # Инициализируем переменную button_url
+    button_url = None  # Или пустая строка: button_url = ""
+    
     # Создаем кнопку, если она нужна
     if "button" in config["content_type"]:
-       button_url = config.get("button_url")
+        button_url = config.get("button_url")
+    
+    # Проверяем button_url
     if button_url:
         markup.add(InlineKeyboardButton(config["button_text"], url=button_url))
     
@@ -200,6 +221,10 @@ def process_content_type(message):
     
     config = load_config()
     config["content_type"] = valid_types[content_type]
+    
+    # Очищаем button_url, если выбран тип с ключевыми словами
+    if config["content_type"] in ["text_with_keyword_button", "photo_with_text_keyword_button"]:
+        config["button_url"] = None  # или config.pop("button_url", None)
     
     # Запрашиваем дополнительные данные в зависимости от типа контента
     if any(t in config["content_type"] for t in ["text", "photo", "video", "voice", "document"]):
@@ -378,9 +403,26 @@ def process_content_type_for_delay(message):
     if "photo" in context["content_type"]:
         bot.reply_to(message, "📤 Пожалуйста, прикрепите фото.")
         bot.register_next_step_handler(message, lambda m: process_photo_for_delay(m, context))
+    elif "video" in context["content_type"]:
+        bot.reply_to(message, "🎥 Пожалуйста, прикрепите видео.")
+        bot.register_next_step_handler(message, lambda m: process_video_for_delay(m, context))
+    elif "voice" in context["content_type"]:
+        bot.reply_to(message, "🎤 Пожалуйста, прикрепите голосовое сообщение.")
+        bot.register_next_step_handler(message, lambda m: process_voice_for_delay(m, context))
+    elif "document" in context["content_type"]:
+        bot.reply_to(message, "📎 Пожалуйста, прикрепите файл.")
+        bot.register_next_step_handler(message, lambda m: process_document_for_delay(m, context))
     else:
         bot.reply_to(message, "📝 Введите основной текст:")
         bot.register_next_step_handler(message, lambda m: process_main_text_for_delay(m, context))
+
+def process_video_for_delay(message, context):
+    if message.content_type != 'video':
+        bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте видео.")
+        return
+    context["video"] = message.video.file_id
+    bot.reply_to(message, "📝 Введите основной текст:")
+    bot.register_next_step_handler(message, lambda m: process_main_text_for_delay(m, context))
 
 def process_photo_for_delay(message, context):
     if message.content_type != "photo":
@@ -391,9 +433,26 @@ def process_photo_for_delay(message, context):
     bot.reply_to(message, "📝 Введите основной текст:")
     bot.register_next_step_handler(message, lambda m: process_main_text_for_delay(m, context))
 
+def process_voice_for_delay(message, context):
+    if message.content_type != 'voice':
+        bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте голосовое сообщение.")
+        return
+    context["voice"] = message.voice.file_id
+    bot.reply_to(message, "📝 Введите основной текст:")
+    bot.register_next_step_handler(message, lambda m: process_main_text_for_delay(m, context))
+
+def process_document_for_delay(message, context):
+    if message.content_type != 'document':
+        bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте файл.")
+        return
+    context["document"] = message.document.file_id
+    bot.reply_to(message, "📝 Введите основной текст:")
+    bot.register_next_step_handler(message, lambda m: process_main_text_for_delay(m, context))
+
 def schedule_delayed_message(message, context):
-    bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС:")
+    bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС")
     bot.register_next_step_handler(message, lambda m: process_delay_datetime(m, context))
+
 def process_main_text_for_delay(message, context):
     context["text"] = message.text
 
@@ -421,41 +480,6 @@ def process_button_url_for_delay(message, context):
     context["button_url"] = message.text
     schedule_delayed_message(message, context)
 
-    # Запрашиваем основной текст, если он нужен
-    if any(t in context["content_type"] for t in ["text", "photo", "video", "voice", "document"]):
-        bot.reply_to(message, "📝 Введите основной текст:")
-        bot.register_next_step_handler(message, process_delay_main_text, context)
-    else:
-        # Если текст не нужен, переходим к следующему шагу
-        process_delay_main_text(message, context)
-
-
-def process_delay_main_text(message, context):
-    if "text" in context["content_type"]:
-        context["text"] = message.text.strip()
-
-    # Запрашиваем дополнительные данные в зависимости от типа контента
-    if context["content_type"] in ["text_with_button", "text_with_video_button", "photo_with_text_button", "text_with_keyword_button", "photo_with_text_keyword_button"]:
-        bot.reply_to(message, "🖋 Введите текст для кнопки:")
-        bot.register_next_step_handler(message, process_delay_button_text, context)
-    elif context["content_type"] in ["text_with_video", "text_with_video_button"]:
-        bot.reply_to(message, "🎥 Отправьте видео:")
-        bot.register_next_step_handler(message, process_delay_video, context)
-    elif context["content_type"] == "text_with_voice":
-        bot.reply_to(message, "🎤 Отправьте голосовое сообщение:")
-        bot.register_next_step_handler(message, process_delay_voice, context)
-    elif context["content_type"] == "text_with_document":
-        bot.reply_to(message, "📎 Отправьте файл:")
-        bot.register_next_step_handler(message, process_delay_document, context)
-    elif context["content_type"] in ["photo_with_text", "photo_with_text_button", "photo_with_text_keyword_button"]:
-        bot.reply_to(message, "🖼 Отправьте фото:")
-        bot.register_next_step_handler(message, process_delay_photo, context)
-    else:
-        # Если дополнительные данные не нужны, запрашиваем дату и время
-        bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС:")
-        bot.register_next_step_handler(message, process_delay_datetime, context)
-
-
 def process_delay_button_text(message, context):
     context["button_text"] = message.text.strip()
 
@@ -466,25 +490,22 @@ def process_delay_button_text(message, context):
         bot.reply_to(message, "🔗 Введите ссылку для кнопки:")
         bot.register_next_step_handler(message, process_delay_button_url, context)
 
-
 def process_delay_button_keywords(message, context):
     context["button_keywords"] = message.text.lower().replace(" ", "")
     schedule_delayed_message(message, context)
-    return  # Добавлено
-
+    return
 
 def process_delay_button_url(message, context):
     context["button_url"] = message.text.strip()
     schedule_delayed_message(message, context)
-    return  # Добавлено
-
+    return
 
 def process_delay_video(message, context):
     if message.content_type != 'video':
         bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте видео.")
         return
     context["video"] = message.video.file_id
-    bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС:")
+    bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС")
     bot.register_next_step_handler(message, process_delay_datetime, context)
     return
 
@@ -493,7 +514,7 @@ def process_delay_voice(message, context):
         bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте голосовое сообщение.")
         return
     context["voice"] = message.voice.file_id
-    bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС:")
+    bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС")
     bot.register_next_step_handler(message, process_delay_datetime, context)
     return
 
@@ -502,7 +523,7 @@ def process_delay_document(message, context):
         bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте файл.")
         return
     context["document"] = message.document.file_id
-    bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС:")
+    bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС")
     bot.register_next_step_handler(message, process_delay_datetime, context)
     return
 
@@ -511,7 +532,7 @@ def process_delay_photo(message, context):
         bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте фото.")
         return
     context["photo"] = message.photo[-1].file_id
-    bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС:")
+    bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС")
     bot.register_next_step_handler(message, process_delay_datetime, context)
     return
 
@@ -532,10 +553,10 @@ def process_delay_datetime(message, context):
         # Запускаем отложенную отправку
         threading.Thread(target=send_delayed_content, args=(context,)).start()
         bot.reply_to(message, f"✅ Сообщение будет отправлено {scheduled_time.strftime('%d-%m-%Y %H:%M:%S')}.")
-        return 
+        return
     except ValueError:
         bot.reply_to(message, "❌ Некорректный формат даты и времени. Используйте формат ДД-ММ-ГГГГ ЧЧ:ММ:СС.")
-        return 
+        return
 
 def send_delayed_content(context):
     # Вычисляем задержку в секундах
