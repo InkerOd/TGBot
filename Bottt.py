@@ -84,17 +84,60 @@ def check_cancel(message, next_step_handler, *args):
 # Обновленный обработчик /start
 @bot.message_handler(commands=['start'])
 def handle_start(message):
-    # Получаем параметр, переданный через deep link
     param = message.text.split(' ')[1] if len(message.text.split(' ')) > 1 else None
     
     if param:
-        if param in config:
-            # Отправляем контент, соответствующий кодовому слову
-            bot.reply_to(message, f"Контент для {param}: {config[param]}")
+        if "magnets" in config and param in config["magnets"]:
+            magnet = config["magnets"][param]
+            send_magnet_content(message.chat.id, magnet)
         else:
             bot.reply_to(message, "Кодовое слово не найдено в конфигурации.")
     else:
-        bot.reply_to(message, "Привет! Вы запустили бота без параметра.")
+        send_welcome(message)
+
+def send_magnet_content(chat_id, magnet):
+    content_type = magnet["content_type"]
+    text_content = magnet.get("text", "")
+    
+    markup = InlineKeyboardMarkup()
+    button_url = magnet.get("button_url", "")
+    if button_url:
+        markup.add(InlineKeyboardButton(magnet["button_text"], url=button_url))
+    
+    try:
+        if content_type == "text":
+            bot.send_message(chat_id, text_content)
+        elif content_type == "text_with_button":
+            bot.send_message(chat_id, text_content, reply_markup=markup)
+        elif content_type == "text_with_video":
+            bot.send_video(chat_id, magnet["video"], caption=text_content)
+        elif content_type == "text_with_video_button":
+            bot.send_video(chat_id, magnet["video"], caption=text_content, reply_markup=markup)
+        elif content_type == "text_with_voice":
+            bot.send_voice(chat_id, magnet["voice"], caption=text_content)
+        elif content_type == "text_with_document":
+            bot.send_document(chat_id, magnet["document"], caption=text_content)
+        elif content_type == "photo_with_text":
+            bot.send_photo(chat_id, magnet["photo"], caption=text_content)
+        elif content_type == "photo_with_text_button":
+            bot.send_photo(chat_id, magnet["photo"], caption=text_content, reply_markup=markup)
+        elif content_type == "text_with_keyword_button":
+            keywords = magnet.get("keywords", [])
+            if keywords:
+                button_data = ",".join(keywords)
+                markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
+            bot.send_message(chat_id, text_content, reply_markup=markup)
+        elif content_type == "photo_with_text_keyword_button":
+            keywords = magnet.get("keywords", [])
+            if keywords:
+                button_data = ",".join(keywords)
+                markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
+            bot.send_photo(chat_id, magnet["photo"], caption=text_content, reply_markup=markup)
+        else:
+            bot.send_message(chat_id, "⚠️ Неподдерживаемый тип контента.")
+    except Exception as e:
+        print(f"Ошибка отправки контента для {chat_id}: {e}")
+        bot.send_message(chat_id, "⚠️ Ошибка при загрузке контента.")
 
 def send_welcome(message):
     user_id = message.chat.id
