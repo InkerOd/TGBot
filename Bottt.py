@@ -72,6 +72,12 @@ load_users()
 
 bot = telebot.TeleBot(TOKEN)
 
+def check_cancel(message, next_step_handler, *args):
+    if message.text and message.text.strip().lower() == "/cancel":
+        cancel_request(message)
+        return
+    next_step_handler(message, *args)
+
 # Обновленный обработчик /start
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -149,11 +155,6 @@ def send_welcome(message):
 def handle_text_start(message):
     send_welcome(message)
 
-    # Добавление команды /cancel для отмены текущего запроса
-@bot.message_handler(commands=['cancel'])
-def cancel_request(message):
-    bot.reply_to(message, "Запрос отменен. Вы можете начать заново.")
-
 # Команда для обновления конфигурации
 @bot.message_handler(commands=['set_start_content'])
 def set_start_content(message):
@@ -179,10 +180,6 @@ def set_start_content(message):
     bot.register_next_step_handler(message, process_content_type)
 
 def process_content_type(message):
-    if message.text.strip().lower() == "/cancel":
-        cancel_request(message)
-        return
-
     content_type = message.text.strip().lower()
     valid_types = {
         "1": "text",
@@ -209,18 +206,12 @@ def process_content_type(message):
         bot.reply_to(message, "📝 Введите основной текст:")
         bot.register_next_step_handler(message, lambda m: process_main_text(m, config))
     
+    # Для типов только с медиа
     elif config["content_type"] in ["photo", "video", "voice", "document"]:
         bot.reply_to(message, f"📤 Отправьте {config['content_type']}:")
         bot.register_next_step_handler(message, lambda m: process_media(m, config))
-    else:
-        save_config(config)
-        bot.reply_to(message, "✅ Конфигурация обновлена!")
 
 def process_main_text(message, config):
-    if message.text.strip().lower() == "/cancel":
-        cancel_request(message)
-        return
-
     config["text"] = message.text
     
     if config["content_type"] in ["text_with_button", "text_with_video_button", "photo_with_text_button", "text_with_keyword_button", "photo_with_text_keyword_button"]:
@@ -248,10 +239,6 @@ def process_main_text(message, config):
         bot.reply_to(message, "✅ Конфигурация обновлена!")
 
 def process_button_text(message, config):
-    if message.text.strip().lower() == "/cancel":
-        cancel_request(message)
-        return
-
     config["button_text"] = message.text
     
     if config["content_type"] in ["text_with_keyword_button", "photo_with_text_keyword_button"]:
@@ -262,28 +249,16 @@ def process_button_text(message, config):
         bot.register_next_step_handler(message, lambda m: process_button_url(m, config))
 
 def process_button_keywords(message, config):
-    if message.text.strip().lower() == "/cancel":
-        cancel_request(message)
-        return
-
     config["button_keywords"] = message.text.lower().replace(" ", "")
     save_config(config)
     bot.reply_to(message, "✅ Конфигурация обновлена!")
 
 def process_button_url(message, config):
-    if message.text.strip().lower() == "/cancel":
-        cancel_request(message)
-        return
-
     config["button_url"] = message.text
     save_config(config)
     bot.reply_to(message, "✅ Конфигурация обновлена!")
 
 def process_photo(message, config):
-    if message.text.strip().lower() == "/cancel":
-        cancel_request(message)
-        return
-
     if message.content_type != 'photo':
         bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте фото.")
         return
@@ -296,10 +271,6 @@ def process_photo(message, config):
         bot.reply_to(message, "✅ Конфигурация обновлена!")
 
 def process_video(message, config):
-    if message.text.strip().lower() == "/cancel":
-        cancel_request(message)
-        return
-
     if message.content_type != 'video':
         bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте видео.")
         return
@@ -423,7 +394,6 @@ def process_photo_for_delay(message, context):
 def schedule_delayed_message(message, context):
     bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС:")
     bot.register_next_step_handler(message, lambda m: process_delay_datetime(m, context))
-
 def process_main_text_for_delay(message, context):
     context["text"] = message.text
 
@@ -499,14 +469,14 @@ def process_delay_button_text(message, context):
 
 def process_delay_button_keywords(message, context):
     context["button_keywords"] = message.text.lower().replace(" ", "")
-    bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС:")
-    bot.register_next_step_handler(message, process_delay_datetime, context)
+    schedule_delayed_message(message, context)
+    return  # Добавлено
 
 
 def process_delay_button_url(message, context):
     context["button_url"] = message.text.strip()
-    bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС:")
-    bot.register_next_step_handler(message, process_delay_datetime, context)
+    schedule_delayed_message(message, context)
+    return  # Добавлено
 
 
 def process_delay_video(message, context):
@@ -516,7 +486,7 @@ def process_delay_video(message, context):
     context["video"] = message.video.file_id
     bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС:")
     bot.register_next_step_handler(message, process_delay_datetime, context)
-
+    return
 
 def process_delay_voice(message, context):
     if message.content_type != 'voice':
@@ -525,7 +495,7 @@ def process_delay_voice(message, context):
     context["voice"] = message.voice.file_id
     bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС:")
     bot.register_next_step_handler(message, process_delay_datetime, context)
-
+    return
 
 def process_delay_document(message, context):
     if message.content_type != 'document':
@@ -534,7 +504,7 @@ def process_delay_document(message, context):
     context["document"] = message.document.file_id
     bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС:")
     bot.register_next_step_handler(message, process_delay_datetime, context)
-
+    return
 
 def process_delay_photo(message, context):
     if message.content_type != 'photo':
@@ -543,7 +513,7 @@ def process_delay_photo(message, context):
     context["photo"] = message.photo[-1].file_id
     bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС:")
     bot.register_next_step_handler(message, process_delay_datetime, context)
-
+    return
 
 def process_delay_datetime(message, context):
     try:
@@ -562,9 +532,10 @@ def process_delay_datetime(message, context):
         # Запускаем отложенную отправку
         threading.Thread(target=send_delayed_content, args=(context,)).start()
         bot.reply_to(message, f"✅ Сообщение будет отправлено {scheduled_time.strftime('%d-%m-%Y %H:%M:%S')}.")
+        return 
     except ValueError:
         bot.reply_to(message, "❌ Некорректный формат даты и времени. Используйте формат ДД-ММ-ГГГГ ЧЧ:ММ:СС.")
-
+        return 
 
 def send_delayed_content(context):
     # Вычисляем задержку в секундах
@@ -621,7 +592,7 @@ def send_all(message):
         "1. Текст\n"
         "2. Текст с кнопкой\n"
         "3. Текст с видео\n"
-        "4. Текст с видео и кнопкой\n"
+        "4. Видео с кнопкой\n"
         "5. Текст с голосовым сообщением\n"
         "6. Текст с файлом\n"
         "7. Картинка с текстом\n"
@@ -656,6 +627,15 @@ def process_content_type_for_all(message):
     if "photo" in context["content_type"]:
         bot.reply_to(message, "📤 Пожалуйста, прикрепите фото.")
         bot.register_next_step_handler(message, lambda m: process_photo_for_all(m, context))
+    elif "video" in context["content_type"]:
+        bot.reply_to(message, "🎥 Пожалуйста, прикрепите видео.")
+        bot.register_next_step_handler(message, lambda m: process_video_for_all(m, context))
+    elif "voice" in context["content_type"]:
+        bot.reply_to(message, "🎤 Пожалуйста, прикрепите голосовое сообщение.")
+        bot.register_next_step_handler(message, lambda m: check_cancel(m, process_voice_for_all, context))
+    elif "document" in context["content_type"]:
+        bot.reply_to(message, "📎 Пожалуйста, прикрепите файл.")
+        bot.register_next_step_handler(message, lambda m: check_cancel(m, process_document_for_all, context))
     else:
         bot.reply_to(message, "📝 Введите основной текст:")
         bot.register_next_step_handler(message, lambda m: process_main_text_for_all(m, context))
@@ -668,6 +648,36 @@ def process_photo_for_all(message, context):
     context["photo"] = message.photo[-1].file_id
     bot.reply_to(message, "📝 Введите основной текст:")
     bot.register_next_step_handler(message, lambda m: process_main_text_for_all(m, context))
+
+def process_voice_for_all(message, context):
+    if message.content_type != 'voice':
+        bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте голосовое сообщение.")
+        return
+
+    context["voice"] = message.voice.file_id
+    bot.reply_to(message, "📝 Введите основной текст:")
+    bot.register_next_step_handler(message, lambda m: check_cancel(m, process_main_text_for_all, context))
+
+def process_document_for_all(message, context):
+    if message.content_type != 'document':
+        bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте файл.")
+        return
+    context["document"] = message.document.file_id
+    bot.reply_to(message, "📝 Введите основной текст:")
+    bot.register_next_step_handler(message, lambda m: check_cancel(m, process_main_text_for_all, context))
+
+def process_video_for_all(message, context):
+    if message.content_type != 'video':
+        bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте видео.")
+        return
+
+    context["video"] = message.video.file_id
+    if context["content_type"] in ["text_with_video_button"]:
+        bot.reply_to(message, "🖋 Введите текст для кнопки:")
+        bot.register_next_step_handler(message, lambda m: check_cancel(m, process_button_text_for_all, context))
+    else:
+        bot.reply_to(message, "📝 Введите основной текст:")
+        bot.register_next_step_handler(message, lambda m: check_cancel(m, process_main_text_for_all, context))
 
 def process_main_text_for_all(message, context):
     context["text"] = message.text
@@ -695,12 +705,11 @@ def process_button_keywords_for_all(message, context):
 def process_button_url_for_all(message, context):
     context["button_url"] = message.text
     send_content_to_all(message, context)
+    return  # Добавлено прерывание
 
     # Запрашиваем основной текст, если он нужен
     if any(t in context["content_type"] for t in ["text", "photo", "video", "voice", "document"]):
-        bot.reply_to(message, "📝 Введите основной текст:")
-        bot.register_next_step_handler(message, process_send_main_text, context)
-    else:
+       
         # Если текст не нужен, переходим к следующему шагу
         process_send_main_text(message, context)
 
@@ -727,7 +736,7 @@ def process_send_main_text(message, context):
         bot.register_next_step_handler(message, process_send_photo, context)
     else:
         # Если дополнительные данные не нужны, отправляем контент
-        send_content_to_all(message, context)
+        send_content_to_all(message, context) 
 
 
 def process_send_button_text(message, context):
@@ -744,12 +753,13 @@ def process_send_button_text(message, context):
 def process_send_button_keywords(message, context):
     context["button_keywords"] = message.text.lower().replace(" ", "")
     send_content_to_all(message, context)
+    return  # Добавлено прерывани
 
 
 def process_send_button_url(message, context):
     context["button_url"] = message.text.strip()
     send_content_to_all(message, context)
-
+    return
 
 def process_send_video(message, context):
     if message.content_type != 'video':
@@ -825,6 +835,7 @@ def send_content_to_all(message, context):
             print(f"Ошибка отправки для {user}: {e}")
 
     bot.reply_to(message, "✅ Контент успешно отправлен всем пользователям!")
+    return  # Добавлено прерывание
 
 @bot.message_handler(commands=['send_selfie'])
 def send_selfie_request(message):
