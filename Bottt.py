@@ -149,6 +149,11 @@ def send_welcome(message):
 def handle_text_start(message):
     send_welcome(message)
 
+    # Добавление команды /cancel для отмены текущего запроса
+@bot.message_handler(commands=['cancel'])
+def cancel_request(message):
+    bot.reply_to(message, "Запрос отменен. Вы можете начать заново.")
+
 # Команда для обновления конфигурации
 @bot.message_handler(commands=['set_start_content'])
 def set_start_content(message):
@@ -174,6 +179,10 @@ def set_start_content(message):
     bot.register_next_step_handler(message, process_content_type)
 
 def process_content_type(message):
+    if message.text.strip().lower() == "/cancel":
+        cancel_request(message)
+        return
+
     content_type = message.text.strip().lower()
     valid_types = {
         "1": "text",
@@ -200,12 +209,18 @@ def process_content_type(message):
         bot.reply_to(message, "📝 Введите основной текст:")
         bot.register_next_step_handler(message, lambda m: process_main_text(m, config))
     
-    # Для типов только с медиа
     elif config["content_type"] in ["photo", "video", "voice", "document"]:
         bot.reply_to(message, f"📤 Отправьте {config['content_type']}:")
         bot.register_next_step_handler(message, lambda m: process_media(m, config))
+    else:
+        save_config(config)
+        bot.reply_to(message, "✅ Конфигурация обновлена!")
 
 def process_main_text(message, config):
+    if message.text.strip().lower() == "/cancel":
+        cancel_request(message)
+        return
+
     config["text"] = message.text
     
     if config["content_type"] in ["text_with_button", "text_with_video_button", "photo_with_text_button", "text_with_keyword_button", "photo_with_text_keyword_button"]:
@@ -233,6 +248,10 @@ def process_main_text(message, config):
         bot.reply_to(message, "✅ Конфигурация обновлена!")
 
 def process_button_text(message, config):
+    if message.text.strip().lower() == "/cancel":
+        cancel_request(message)
+        return
+
     config["button_text"] = message.text
     
     if config["content_type"] in ["text_with_keyword_button", "photo_with_text_keyword_button"]:
@@ -243,16 +262,28 @@ def process_button_text(message, config):
         bot.register_next_step_handler(message, lambda m: process_button_url(m, config))
 
 def process_button_keywords(message, config):
+    if message.text.strip().lower() == "/cancel":
+        cancel_request(message)
+        return
+
     config["button_keywords"] = message.text.lower().replace(" ", "")
     save_config(config)
     bot.reply_to(message, "✅ Конфигурация обновлена!")
 
 def process_button_url(message, config):
+    if message.text.strip().lower() == "/cancel":
+        cancel_request(message)
+        return
+
     config["button_url"] = message.text
     save_config(config)
     bot.reply_to(message, "✅ Конфигурация обновлена!")
 
 def process_photo(message, config):
+    if message.text.strip().lower() == "/cancel":
+        cancel_request(message)
+        return
+
     if message.content_type != 'photo':
         bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте фото.")
         return
@@ -265,6 +296,10 @@ def process_photo(message, config):
         bot.reply_to(message, "✅ Конфигурация обновлена!")
 
 def process_video(message, config):
+    if message.text.strip().lower() == "/cancel":
+        cancel_request(message)
+        return
+
     if message.content_type != 'video':
         bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте видео.")
         return
