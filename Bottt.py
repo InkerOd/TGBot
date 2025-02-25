@@ -3,7 +3,9 @@ import json
 import os
 import schedule
 import time
+import logging
 import threading
+from urllib.parse import unquote
 from datetime import datetime
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
@@ -20,6 +22,8 @@ with open('config.json', 'r', encoding='utf-8') as config_file:
 
 # Путь к файлу конфигурации
 CONFIG_FILE = 'config.json'
+
+logging.basicConfig(level=logging.INFO)
 
 # Список администраторов
 administrators = {447640188, 600164937, 339175430}
@@ -53,7 +57,6 @@ def load_config():
         with open(CONFIG_FILE, 'r', encoding='utf-8') as file:
             return json.load(file)
     except (FileNotFoundError, json.JSONDecodeError):
-        # Возвращаем конфигурацию по умолчанию, если файл не найден или пуст
         return {
             "content_type": "text_with_button",
             "text": "Привет! Это новый контент для команды /start.",
@@ -62,9 +65,9 @@ def load_config():
             "photo": None,
             "video": None,
             "voice": None,
-            "document": None
+            "document": None,
+            "magnets": {}
         }
-
 # Сохранение конфигурации
 def save_config(config):
     with open(CONFIG_FILE, 'w', encoding='utf-8') as file:
@@ -75,32 +78,57 @@ load_users()
 
 bot = telebot.TeleBot(TOKEN)
 
+# Функция для отмены текущего процесса
+def cancel_request(message):
+    bot.reply_to(message, "Команда отменена.")
+    return
+
+# Функция для проверки команды /cancel
 def check_cancel(message, next_step_handler, *args):
     if message.text and message.text.strip().lower() == "/cancel":
         cancel_request(message)
         return
     next_step_handler(message, *args)
 
+def check_cancel(message, next_step_handler, *args):
+    if message.text and message.text.strip().lower() == "/cancel":
+        cancel_request(message)
+        return
+    next_step_handler(message, *args)
+
+    # Создаем обертку для bot.register_next_step_handler
+def register_next_step_handler_with_cancel(message, next_step_handler, *args):
+    """
+    Обертка для bot.register_next_step_handler, которая автоматически добавляет check_cancel.
+    """
+    bot.register_next_step_handler(message, lambda m: check_cancel(m, next_step_handler, *args))
+
 # Обновленный обработчик /start
 @bot.message_handler(commands=['start'])
 def handle_start(message):
-    param = message.text.split(' ')[1] if len(message.text.split(' ')) > 1 else None
-    
-    if param:
-        if "magnets" in config and param in config["magnets"]:
-            magnet = config["magnets"][param]
-            send_magnet_content(message.chat.id, magnet)
-        else:
-            bot.reply_to(message, "Кодовое слово не найдено в конфигурации.")
+    raw_params = message.text.split(' ')[1] if len(message.text.split(' ')) > 1 else None
+
+    if raw_params:
+        params = unquote(raw_params).split('&')  # Декодируем параметры из URL и разделяем по амперсанду
+        for param in params:
+            param = param.strip()
+            if "magnets" in config and param in config["magnets"]:
+                magnet = config["magnets"][param]
+                send_magnet_content(message.chat.id, magnet)
+            else:
+                bot.reply_to(message, f"Кодовое слово '{param}' не найдено в конфигурации.")
     else:
         send_welcome(message)
 
 def send_magnet_content(chat_id, magnet):
     content_type = magnet["content_type"]
     text_content = magnet.get("text", "")
-    
     markup = InlineKeyboardMarkup()
     button_url = magnet.get("button_url", "")
+    
+    # Добавить отладочную информацию
+    print(f"Отправка контента: chat_id={chat_id}, content_type={content_type}, text_content={text_content}")
+
     if button_url:
         markup.add(InlineKeyboardButton(magnet["button_text"], url=button_url))
     
@@ -124,20 +152,26 @@ def send_magnet_content(chat_id, magnet):
         elif content_type == "text_with_keyword_button":
             keywords = magnet.get("keywords", [])
             if keywords:
-                button_data = ",".join(keywords)
+                button_data = ",".join(keywords)  # Преобразуем список в строку
                 markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
+            else:
+                markup.add(InlineKeyboardButton(magnet["button_text"], callback_data="no_action"))  # Безопасное значение 
             bot.send_message(chat_id, text_content, reply_markup=markup)
         elif content_type == "photo_with_text_keyword_button":
             keywords = magnet.get("keywords", [])
             if keywords:
-                button_data = ",".join(keywords)
+                button_data = ",".join(keywords)  # Преобразуем список в строку
                 markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
+            else:
+                markup.add(InlineKeyboardButton(magnet["button_text"], callback_data="no_action"))  # Безопасное значение 
             bot.send_photo(chat_id, magnet["photo"], caption=text_content, reply_markup=markup)
         else:
             bot.send_message(chat_id, "⚠️ Неподдерживаемый тип контента.")
     except Exception as e:
         print(f"Ошибка отправки контента для {chat_id}: {e}")
         bot.send_message(chat_id, "⚠️ Ошибка при загрузке контента.")
+
+        
 
 def send_welcome(message):
     user_id = message.chat.id
@@ -241,7 +275,7 @@ def set_start_content(message):
         "10. Картинка и текст и кнопка с кодовым словом"
     )
     bot.reply_to(message, menu)
-    bot.register_next_step_handler(message, process_content_type)
+    register_next_step_handler_with_cancel(message, process_content_type)
 
 def process_content_type(message):
     content_type = message.text.strip().lower()
@@ -264,60 +298,47 @@ def process_content_type(message):
     
     config = load_config()
     config["content_type"] = valid_types[content_type]
+    save_config(config)
     
-    # Очищаем button_url, если выбран тип с ключевыми словами
-    if config["content_type"] in ["text_with_keyword_button", "photo_with_text_keyword_button"]:
-        config["button_url"] = None  # или config.pop("button_url", None)
-    
-    # Запрашиваем дополнительные данные в зависимости от типа контента
-    if any(t in config["content_type"] for t in ["text", "photo", "video", "voice", "document"]):
-        bot.reply_to(message, "📝 Введите основной текст:")
-        bot.register_next_step_handler(message, lambda m: process_main_text(m, config))
-    
-    # Для типов только с медиа
-    elif config["content_type"] in ["photo", "video", "voice", "document"]:
-        bot.reply_to(message, f"📤 Отправьте {config['content_type']}:")
-        bot.register_next_step_handler(message, lambda m: process_media(m, config))
+    # Запрашиваем основной текст для всех типов контента
+    bot.reply_to(message, "📝 Введите основной текст:")
+    register_next_step_handler_with_cancel(message, lambda m: process_main_text(m, config))
 
 def process_main_text(message, config):
     config["text"] = message.text
+    save_config(config)
     
     if config["content_type"] in ["text_with_button", "text_with_video_button", "photo_with_text_button", "text_with_keyword_button", "photo_with_text_keyword_button"]:
         bot.reply_to(message, "🖋 Введите текст для кнопки:")
-        bot.register_next_step_handler(message, lambda m: process_button_text(m, config))
-    
+        register_next_step_handler_with_cancel(message, lambda m: process_button_text(m, config))
     elif config["content_type"] in ["text_with_video", "text_with_video_button"]:
         bot.reply_to(message, "🎥 Отправьте видео:")
-        bot.register_next_step_handler(message, lambda m: process_video(m, config))
-    
+        register_next_step_handler_with_cancel(message, lambda m: process_video(m, config))
     elif config["content_type"] == "text_with_voice":
         bot.reply_to(message, "🎤 Отправьте голосовое сообщение:")
-        bot.register_next_step_handler(message, lambda m: process_voice(m, config))
-    
+        register_next_step_handler_with_cancel(message, lambda m: process_voice(m, config))
     elif config["content_type"] == "text_with_document":
         bot.reply_to(message, "📎 Отправьте файл:")
-        bot.register_next_step_handler(message, lambda m: process_document(m, config))
-    
+        register_next_step_handler_with_cancel(message, lambda m: process_document(m, config))
     elif config["content_type"] in ["photo_with_text", "photo_with_text_button", "photo_with_text_keyword_button"]:
         bot.reply_to(message, "🖼 Отправьте фото:")
-        bot.register_next_step_handler(message, lambda m: process_photo(m, config))
-    
+        register_next_step_handler_with_cancel(message, lambda m: process_photo(m, config))
     else:
-        save_config(config)
-        bot.reply_to(message, "✅ Конфигурация обновлена!")
+        bot.reply_to(message, f"✅ Конфигурация обновлена!")
 
 def process_button_text(message, config):
     config["button_text"] = message.text
+    save_config(config)
     
     if config["content_type"] in ["text_with_keyword_button", "photo_with_text_keyword_button"]:
         bot.reply_to(message, "🔗 Введите кодовые слова для кнопки через запятую:")
-        bot.register_next_step_handler(message, lambda m: process_button_keywords(m, config))
+        register_next_step_handler_with_cancel(message, lambda m: process_button_keywords(m, config))
     else:
         bot.reply_to(message, "🔗 Введите ссылку для кнопки:")
-        bot.register_next_step_handler(message, lambda m: process_button_url(m, config))
+        register_next_step_handler_with_cancel(message, lambda m: process_button_url(m, config))
 
 def process_button_keywords(message, config):
-    config["button_keywords"] = message.text.lower().replace(" ", "")
+    config["button_keywords"] = [kw.strip().lower() for kw in message.text.split(',')]
     save_config(config)
     bot.reply_to(message, "✅ Конфигурация обновлена!")
 
@@ -330,30 +351,35 @@ def process_photo(message, config):
     if message.content_type != 'photo':
         bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте фото.")
         return
+
     config["photo"] = message.photo[-1].file_id
+    save_config(config)
+    
     if config["content_type"] in ["photo_with_text_button", "photo_with_text_keyword_button"]:
         bot.reply_to(message, "🖋 Введите текст для кнопки:")
-        bot.register_next_step_handler(message, lambda m: process_button_text(m, config))
+        register_next_step_handler_with_cancel(message, lambda m: process_button_text(m, config))
     else:
-        save_config(config)
         bot.reply_to(message, "✅ Конфигурация обновлена!")
 
 def process_video(message, config):
     if message.content_type != 'video':
         bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте видео.")
         return
+
     config["video"] = message.video.file_id
+    save_config(config)
+    
     if config["content_type"] == "text_with_video_button":
         bot.reply_to(message, "🖋 Введите текст для кнопки:")
-        bot.register_next_step_handler(message, lambda m: process_button_text(m, config))
+        register_next_step_handler_with_cancel(message, lambda m: process_button_text(m, config))
     else:
-        save_config(config)
         bot.reply_to(message, "✅ Конфигурация обновлена!")
 
 def process_voice(message, config):
     if message.content_type != 'voice':
         bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте голосовое сообщение.")
         return
+
     config["voice"] = message.voice.file_id
     save_config(config)
     bot.reply_to(message, "✅ Конфигурация обновлена!")
@@ -362,6 +388,7 @@ def process_document(message, config):
     if message.content_type != 'document':
         bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте файл.")
         return
+
     config["document"] = message.document.file_id
     save_config(config)
     bot.reply_to(message, "✅ Конфигурация обновлена!")
@@ -420,7 +447,7 @@ def delay_message(message):
         "10. Картинка и текст и кнопка с кодовым словом"
     )
     bot.reply_to(message, menu)
-    bot.register_next_step_handler(message, process_content_type_for_delay)
+    register_next_step_handler_with_cancel(message, process_content_type_for_delay)
 
 def process_content_type_for_delay(message):
     content_type = message.text.strip().lower()
@@ -445,19 +472,19 @@ def process_content_type_for_delay(message):
 
     if "photo" in context["content_type"]:
         bot.reply_to(message, "📤 Пожалуйста, прикрепите фото.")
-        bot.register_next_step_handler(message, lambda m: process_photo_for_delay(m, context))
+        register_next_step_handler_with_cancel(message, lambda m: process_photo_for_delay(m, context))
     elif "video" in context["content_type"]:
         bot.reply_to(message, "🎥 Пожалуйста, прикрепите видео.")
-        bot.register_next_step_handler(message, lambda m: process_video_for_delay(m, context))
+        register_next_step_handler_with_cancel(message, lambda m: process_video_for_delay(m, context))
     elif "voice" in context["content_type"]:
         bot.reply_to(message, "🎤 Пожалуйста, прикрепите голосовое сообщение.")
-        bot.register_next_step_handler(message, lambda m: process_voice_for_delay(m, context))
+        register_next_step_handler_with_cancel(message, lambda m: process_voice_for_delay(m, context))
     elif "document" in context["content_type"]:
         bot.reply_to(message, "📎 Пожалуйста, прикрепите файл.")
-        bot.register_next_step_handler(message, lambda m: process_document_for_delay(m, context))
+        register_next_step_handler_with_cancel(message, lambda m: process_document_for_delay(m, context))
     else:
         bot.reply_to(message, "📝 Введите основной текст:")
-        bot.register_next_step_handler(message, lambda m: process_main_text_for_delay(m, context))
+        register_next_step_handler_with_cancel(message, lambda m: process_main_text_for_delay(m, context))
 
 def process_video_for_delay(message, context):
     if message.content_type != 'video':
@@ -465,7 +492,7 @@ def process_video_for_delay(message, context):
         return
     context["video"] = message.video.file_id
     bot.reply_to(message, "📝 Введите основной текст:")
-    bot.register_next_step_handler(message, lambda m: process_main_text_for_delay(m, context))
+    register_next_step_handler_with_cancel(message, lambda m: process_main_text_for_delay(m, context))
 
 def process_photo_for_delay(message, context):
     if message.content_type != "photo":
@@ -474,7 +501,7 @@ def process_photo_for_delay(message, context):
 
     context["photo"] = message.photo[-1].file_id
     bot.reply_to(message, "📝 Введите основной текст:")
-    bot.register_next_step_handler(message, lambda m: process_main_text_for_delay(m, context))
+    register_next_step_handler_with_cancel(message, lambda m: process_main_text_for_delay(m, context))
 
 def process_voice_for_delay(message, context):
     if message.content_type != 'voice':
@@ -482,7 +509,7 @@ def process_voice_for_delay(message, context):
         return
     context["voice"] = message.voice.file_id
     bot.reply_to(message, "📝 Введите основной текст:")
-    bot.register_next_step_handler(message, lambda m: process_main_text_for_delay(m, context))
+    register_next_step_handler_with_cancel(message, lambda m: process_main_text_for_delay(m, context))
 
 def process_document_for_delay(message, context):
     if message.content_type != 'document':
@@ -490,18 +517,18 @@ def process_document_for_delay(message, context):
         return
     context["document"] = message.document.file_id
     bot.reply_to(message, "📝 Введите основной текст:")
-    bot.register_next_step_handler(message, lambda m: process_main_text_for_delay(m, context))
+    register_next_step_handler_with_cancel(message, lambda m: process_main_text_for_delay(m, context))
 
 def schedule_delayed_message(message, context):
     bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС")
-    bot.register_next_step_handler(message, lambda m: process_delay_datetime(m, context))
+    register_next_step_handler_with_cancel(message, lambda m: process_delay_datetime(m, context))
 
 def process_main_text_for_delay(message, context):
     context["text"] = message.text
 
     if any(t in context["content_type"] for t in ["button", "keyword_button"]):
         bot.reply_to(message, "📝 Введите текст для кнопки:")
-        bot.register_next_step_handler(message, lambda m: process_button_text_for_delay(m, context))
+        register_next_step_handler_with_cancel(message, lambda m: process_button_text_for_delay(m, context))
     else:
         schedule_delayed_message(message, context)
 
@@ -510,10 +537,10 @@ def process_button_text_for_delay(message, context):
 
     if "keyword_button" in context["content_type"]:
         bot.reply_to(message, "📝 Введите кодовые слова через запятую:")
-        bot.register_next_step_handler(message, lambda m: process_button_keywords_for_delay(m, context))
+        register_next_step_handler_with_cancel(message, lambda m: process_button_keywords_for_delay(m, context))
     else:
         bot.reply_to(message, "📝 Введите URL кнопки:")
-        bot.register_next_step_handler(message, lambda m: process_button_url_for_delay(m, context))
+        register_next_step_handler_with_cancel(message, lambda m: process_button_url_for_delay(m, context))
 
 def process_button_keywords_for_delay(message, context):
     context["button_keywords"] = message.text
@@ -528,10 +555,10 @@ def process_delay_button_text(message, context):
 
     if context["content_type"] in ["text_with_keyword_button", "photo_with_text_keyword_button"]:
         bot.reply_to(message, "🔗 Введите кодовые слова для кнопки через запятую:")
-        bot.register_next_step_handler(message, process_delay_button_keywords, context)
+        register_next_step_handler_with_cancel(message, process_delay_button_keywords, context)
     else:
         bot.reply_to(message, "🔗 Введите ссылку для кнопки:")
-        bot.register_next_step_handler(message, process_delay_button_url, context)
+        register_next_step_handler_with_cancel(message, process_delay_button_url, context)
 
 def process_delay_button_keywords(message, context):
     context["button_keywords"] = message.text.lower().replace(" ", "")
@@ -549,7 +576,7 @@ def process_delay_video(message, context):
         return
     context["video"] = message.video.file_id
     bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС")
-    bot.register_next_step_handler(message, process_delay_datetime, context)
+    register_next_step_handler_with_cancel(message, process_delay_datetime, context)
     return
 
 def process_delay_voice(message, context):
@@ -558,7 +585,7 @@ def process_delay_voice(message, context):
         return
     context["voice"] = message.voice.file_id
     bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС")
-    bot.register_next_step_handler(message, process_delay_datetime, context)
+    register_next_step_handler_with_cancel(message, process_delay_datetime, context)
     return
 
 def process_delay_document(message, context):
@@ -567,7 +594,7 @@ def process_delay_document(message, context):
         return
     context["document"] = message.document.file_id
     bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС")
-    bot.register_next_step_handler(message, process_delay_datetime, context)
+    register_next_step_handler_with_cancel(message, process_delay_datetime, context)
     return
 
 def process_delay_photo(message, context):
@@ -576,7 +603,7 @@ def process_delay_photo(message, context):
         return
     context["photo"] = message.photo[-1].file_id
     bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС")
-    bot.register_next_step_handler(message, process_delay_datetime, context)
+    register_next_step_handler_with_cancel(message, process_delay_datetime, context)
     return
 
 def process_delay_datetime(message, context):
@@ -665,7 +692,7 @@ def send_all(message):
         "10. Картинка и текст и кнопка с кодовым словом"
     )
     bot.reply_to(message, menu)
-    bot.register_next_step_handler(message, process_content_type_for_all)
+    register_next_step_handler_with_cancel(message, process_content_type_for_all)
 
 def process_content_type_for_all(message):
     content_type = message.text.strip().lower()
@@ -690,19 +717,19 @@ def process_content_type_for_all(message):
 
     if "photo" in context["content_type"]:
         bot.reply_to(message, "📤 Пожалуйста, прикрепите фото.")
-        bot.register_next_step_handler(message, lambda m: process_photo_for_all(m, context))
+        register_next_step_handler_with_cancel(message, lambda m: process_photo_for_all(m, context))
     elif "video" in context["content_type"]:
         bot.reply_to(message, "🎥 Пожалуйста, прикрепите видео.")
-        bot.register_next_step_handler(message, lambda m: process_video_for_all(m, context))
+        register_next_step_handler_with_cancel(message, lambda m: process_video_for_all(m, context))
     elif "voice" in context["content_type"]:
         bot.reply_to(message, "🎤 Пожалуйста, прикрепите голосовое сообщение.")
-        bot.register_next_step_handler(message, lambda m: check_cancel(m, process_voice_for_all, context))
+        register_next_step_handler_with_cancel(message, lambda m: check_cancel(m, process_voice_for_all, context))
     elif "document" in context["content_type"]:
         bot.reply_to(message, "📎 Пожалуйста, прикрепите файл.")
-        bot.register_next_step_handler(message, lambda m: check_cancel(m, process_document_for_all, context))
+        register_next_step_handler_with_cancel(message, lambda m: check_cancel(m, process_document_for_all, context))
     else:
         bot.reply_to(message, "📝 Введите основной текст:")
-        bot.register_next_step_handler(message, lambda m: process_main_text_for_all(m, context))
+        register_next_step_handler_with_cancel(message, lambda m: process_main_text_for_all(m, context))
 
 def process_photo_for_all(message, context):
     if message.content_type != "photo":
@@ -711,7 +738,7 @@ def process_photo_for_all(message, context):
 
     context["photo"] = message.photo[-1].file_id
     bot.reply_to(message, "📝 Введите основной текст:")
-    bot.register_next_step_handler(message, lambda m: process_main_text_for_all(m, context))
+    register_next_step_handler_with_cancel(message, lambda m: process_main_text_for_all(m, context))
 
 def process_voice_for_all(message, context):
     if message.content_type != 'voice':
@@ -720,7 +747,7 @@ def process_voice_for_all(message, context):
 
     context["voice"] = message.voice.file_id
     bot.reply_to(message, "📝 Введите основной текст:")
-    bot.register_next_step_handler(message, lambda m: check_cancel(m, process_main_text_for_all, context))
+    register_next_step_handler_with_cancel(message, lambda m: check_cancel(m, process_main_text_for_all, context))
 
 def process_document_for_all(message, context):
     if message.content_type != 'document':
@@ -728,7 +755,7 @@ def process_document_for_all(message, context):
         return
     context["document"] = message.document.file_id
     bot.reply_to(message, "📝 Введите основной текст:")
-    bot.register_next_step_handler(message, lambda m: check_cancel(m, process_main_text_for_all, context))
+    register_next_step_handler_with_cancel(message, lambda m: check_cancel(m, process_main_text_for_all, context))
 
 def process_video_for_all(message, context):
     if message.content_type != 'video':
@@ -738,17 +765,17 @@ def process_video_for_all(message, context):
     context["video"] = message.video.file_id
     if context["content_type"] in ["text_with_video_button"]:
         bot.reply_to(message, "🖋 Введите текст для кнопки:")
-        bot.register_next_step_handler(message, lambda m: check_cancel(m, process_button_text_for_all, context))
+        register_next_step_handler_with_cancel(message, lambda m: check_cancel(m, process_button_text_for_all, context))
     else:
         bot.reply_to(message, "📝 Введите основной текст:")
-        bot.register_next_step_handler(message, lambda m: check_cancel(m, process_main_text_for_all, context))
+        register_next_step_handler_with_cancel(message, lambda m: check_cancel(m, process_main_text_for_all, context))
 
 def process_main_text_for_all(message, context):
     context["text"] = message.text
 
     if any(t in context["content_type"] for t in ["button", "keyword_button"]):
         bot.reply_to(message, "📝 Введите текст кнопки:")
-        bot.register_next_step_handler(message, lambda m: process_button_text_for_all(m, context))
+        register_next_step_handler_with_cancel(message, lambda m: process_button_text_for_all(m, context))
     else:
         send_content_to_all(message, context)
 
@@ -757,10 +784,10 @@ def process_button_text_for_all(message, context):
 
     if "keyword_button" in context["content_type"]:
         bot.reply_to(message, "📝 Введите кодовые слова через запятую:")
-        bot.register_next_step_handler(message, lambda m: process_button_keywords_for_all(m, context))
+        register_next_step_handler_with_cancel(message, lambda m: process_button_keywords_for_all(m, context))
     else:
         bot.reply_to(message, "📝 Введите URL кнопки:")
-        bot.register_next_step_handler(message, lambda m: process_button_url_for_all(m, context))
+        register_next_step_handler_with_cancel(message, lambda m: process_button_url_for_all(m, context))
 
 def process_button_keywords_for_all(message, context):
     context["button_keywords"] = message.text
@@ -785,19 +812,19 @@ def process_send_main_text(message, context):
     # Запрашиваем дополнительные данные в зависимости от типа контента
     if context["content_type"] in ["text_with_button", "text_with_video_button", "photo_with_text_button", "text_with_keyword_button", "photo_with_text_keyword_button"]:
         bot.reply_to(message, "🖋 Введите текст для кнопки:")
-        bot.register_next_step_handler(message, process_send_button_text, context)
+        register_next_step_handler_with_cancel(message, process_send_button_text, context)
     elif context["content_type"] in ["text_with_video", "text_with_video_button"]:
         bot.reply_to(message, "🎥 Отправьте видео:")
-        bot.register_next_step_handler(message, process_send_video, context)
+        register_next_step_handler_with_cancel(message, process_send_video, context)
     elif context["content_type"] == "text_with_voice":
         bot.reply_to(message, "🎤 Отправьте голосовое сообщение:")
-        bot.register_next_step_handler(message, process_send_voice, context)
+        register_next_step_handler_with_cancel(message, process_send_voice, context)
     elif context["content_type"] == "text_with_document":
         bot.reply_to(message, "📎 Отправьте файл:")
-        bot.register_next_step_handler(message, process_send_document, context)
+        register_next_step_handler_with_cancel(message, process_send_document, context)
     elif context["content_type"] in ["photo_with_text", "photo_with_text_button", "photo_with_text_keyword_button"]:
         bot.reply_to(message, "🖼 Отправьте фото:")
-        bot.register_next_step_handler(message, process_send_photo, context)
+        register_next_step_handler_with_cancel(message, process_send_photo, context)
     else:
         # Если дополнительные данные не нужны, отправляем контент
         send_content_to_all(message, context) 
@@ -808,10 +835,10 @@ def process_send_button_text(message, context):
 
     if context["content_type"] in ["text_with_keyword_button", "photo_with_text_keyword_button"]:
         bot.reply_to(message, "🔗 Введите кодовые слова для кнопки через запятую:")
-        bot.register_next_step_handler(message, process_send_button_keywords, context)
+        register_next_step_handler_with_cancel(message, process_send_button_keywords, context)
     else:
         bot.reply_to(message, "🔗 Введите ссылку для кнопки:")
-        bot.register_next_step_handler(message, process_send_button_url, context)
+        register_next_step_handler_with_cancel(message, process_send_button_url, context)
 
 
 def process_send_button_keywords(message, context):
@@ -887,12 +914,12 @@ def send_content_to_all(message, context):
                 bot.send_photo(user, context["photo"], caption=text, reply_markup=markup)
             elif content_type == "text_with_keyword_button":
                 markup = InlineKeyboardMarkup()
-                button_data = ",".join([kw.strip() for kw in context["button_keywords"].split(',')])
+                button_data = ",".join([kw.strip() for kw in context["button_keywords"]])
                 markup.add(InlineKeyboardButton(context["button_text"], callback_data=button_data))
                 bot.send_message(user, text, reply_markup=markup)
             elif content_type == "photo_with_text_keyword_button":
                 markup = InlineKeyboardMarkup()
-                button_data = ",".join([kw.strip() for kw in context["button_keywords"].split(',')])
+                button_data = ",".join([kw.strip() for kw in context["button_keywords"]])
                 markup.add(InlineKeyboardButton(context["button_text"], callback_data=button_data))
                 bot.send_photo(user, context["photo"], caption=text, reply_markup=markup)
         except Exception as e:
@@ -935,7 +962,7 @@ def create_magnet(message):
         return
 
     bot.reply_to(message, "Придумайте кодовое слово:")
-    bot.register_next_step_handler(message, process_magnet_keyword)
+    register_next_step_handler_with_cancel(message, process_magnet_keyword)
 
 def process_magnet_keyword(message):
     keyword = message.text.strip().lower()
@@ -959,16 +986,16 @@ def process_magnet_keyword(message):
         "1. Текст\n"
         "2. Текст с кнопкой\n"
         "3. Текст с видео\n"
-        "4. Текст с видео и кнопкой\n"
+        "4. текст и видео и кнопкой\n"
         "5. Текст с голосовым сообщением\n"
         "6. Текст с файлом\n"
         "7. Картинка с текстом\n"
-        "8. Картинка с текстом и кнопкой\n"
+        "8. Картинка и текст с кнопкой\n"
         "9. Текст и кнопка с кодовым словом\n"
         "10. Картинка и текст и кнопка с кодовым словом"
     )
     bot.reply_to(message, menu)
-    bot.register_next_step_handler(message, lambda m: process_magnet_content_type(m, keyword))
+    register_next_step_handler_with_cancel(message, lambda m: process_magnet_content_type(m, keyword))
 
 def process_magnet_content_type(message, keyword):
     content_type = message.text.strip().lower()
@@ -993,53 +1020,64 @@ def process_magnet_content_type(message, keyword):
     config["magnets"][keyword]["content_type"] = valid_types[content_type]
     save_config(config)
 
-    if any(t in config["magnets"][keyword]["content_type"] for t in ["text", "photo", "video", "voice", "document"]):
+    # Для всех типов контента, кроме text, text_with_button, text_with_keyword_button
+    if valid_types[content_type] == "text":
         bot.reply_to(message, "📝 Введите основной текст:")
-        bot.register_next_step_handler(message, lambda m: process_magnet_main_text(m, keyword))
+        register_next_step_handler_with_cancel(message, lambda m: process_magnet_main_text(m, keyword))
+    elif valid_types[content_type] == "text_with_button":
+        bot.reply_to(message, "📝 Введите основной текст:")
+        register_next_step_handler_with_cancel(message, lambda m: process_magnet_main_text_with_button(m, keyword))
+    elif valid_types[content_type] in ["text_with_video", "text_with_video_button"]:
+        bot.reply_to(message, "🎥 Отправьте видео:")
+        register_next_step_handler_with_cancel(message, lambda m: process_magnet_video(m, keyword))
+    elif valid_types[content_type] == "text_with_voice":
+        bot.reply_to(message, "🎤 Отправьте голосовое сообщение:")
+        register_next_step_handler_with_cancel(message, lambda m: process_magnet_voice(m, keyword))
+    elif valid_types[content_type] == "text_with_document":
+        bot.reply_to(message, "📎 Отправьте файл:")
+        register_next_step_handler_with_cancel(message, lambda m: process_magnet_document(m, keyword))
+    elif valid_types[content_type] in ["photo_with_text", "photo_with_text_button", "photo_with_text_keyword_button"]:
+        bot.reply_to(message, "🖼 Отправьте фото:")
+        register_next_step_handler_with_cancel(message, lambda m: process_magnet_photo(m, keyword))
+    elif valid_types[content_type] in ["text_with_keyword_button", "photo_with_text_keyword_button"]:
+        bot.reply_to(message, "📝 Введите основной текст:")
+        register_next_step_handler_with_cancel(message, lambda m: process_magnet_main_text_with_keyword_button(m, keyword))
+    else:
+        bot.reply_to(message, f"✅ Кодовое слово '{keyword}' создано!")
 
 def process_magnet_main_text(message, keyword):
     config = load_config()
     config["magnets"][keyword]["text"] = message.text
     save_config(config)
+    bot.reply_to(message, f"✅ Кодовое слово '{keyword}' создано!")
 
-    if config["magnets"][keyword]["content_type"] in ["text_with_button", "text_with_video_button", "photo_with_text_button"]:
-        bot.reply_to(message, "🖋 Введите текст для кнопки:")
-        bot.register_next_step_handler(message, lambda m: process_magnet_button_text(m, keyword))
-    elif config["magnets"][keyword]["content_type"] in ["text_with_video", "text_with_video_button"]:
-        bot.reply_to(message, "🎥 Отправьте видео:")
-        bot.register_next_step_handler(message, lambda m: process_magnet_video(m, keyword))
-    elif config["magnets"][keyword]["content_type"] == "text_with_voice":
-        bot.reply_to(message, "🎤 Отправьте голосовое сообщение:")
-        bot.register_next_step_handler(message, lambda m: process_magnet_voice(m, keyword))
-    elif config["magnets"][keyword]["content_type"] == "text_with_document":
-        bot.reply_to(message, "📎 Отправьте файл:")
-        bot.register_next_step_handler(message, lambda m: process_magnet_document(m, keyword))
-    elif config["magnets"][keyword]["content_type"] in ["photo_with_text", "photo_with_text_button", "photo_with_text_keyword_button"]:
-        bot.reply_to(message, "🖼 Отправьте фото:")
-        bot.register_next_step_handler(message, lambda m: process_magnet_photo(m, keyword))
-    elif config["magnets"][keyword]["content_type"] in ["text_with_keyword_button", "photo_with_text_keyword_button"]:
-        bot.reply_to(message, "🖋 Введите текст для кнопки:")
-        bot.register_next_step_handler(message, lambda m: process_magnet_button_text(m, keyword))
-    else:
-        bot.reply_to(message, f"✅ Кодовое слово '{keyword}' создано!")
+def process_magnet_main_text_with_button(message, keyword):
+    config = load_config()
+    config["magnets"][keyword]["text"] = message.text
+    save_config(config)
+    bot.reply_to(message, "🖋 Введите текст для кнопки:")
+    register_next_step_handler_with_cancel(message, lambda m: process_magnet_button_text(m, keyword))
+
+def process_magnet_main_text_with_keyword_button(message, keyword):
+    config = load_config()
+    config["magnets"][keyword]["text"] = message.text
+    save_config(config)
+    bot.reply_to(message, "🖋 Введите текст для кнопки:")
+    register_next_step_handler_with_cancel(message, lambda m: process_magnet_button_text_with_keywords(m, keyword))
 
 def process_magnet_button_text(message, keyword):
     config = load_config()
     config["magnets"][keyword]["button_text"] = message.text
     save_config(config)
+    bot.reply_to(message, "🔗 Введите ссылку для кнопки:")
+    register_next_step_handler_with_cancel(message, lambda m: process_magnet_button_url(m, keyword))
 
-    if config["magnets"][keyword]["content_type"] in ["text_with_keyword_button", "photo_with_text_keyword_button"]:
-        bot.reply_to(message, "🔗 Введите кодовые слова для кнопки через запятую:")
-        bot.register_next_step_handler(message, lambda m: process_magnet_button_keywords(m, keyword))
-    else:
-        bot.reply_to(message, "🔗 Введите ссылку для кнопки:")
-        bot.register_next_step_handler(message, lambda m: process_magnet_button_url(m, keyword))
-
-def process_magnet_button_keywords(message, keyword):
+def process_magnet_button_text_with_keywords(message, keyword):
     config = load_config()
-    config["magnets"][keyword]["keywords"] = [kw.strip().lower() for kw in message.text.split(',')]
+    config["magnets"][keyword]["button_text"] = message.text
     save_config(config)
-    bot.reply_to(message, f"✅ Кодовое слово '{keyword}' создано!")
+    bot.reply_to(message, "🔗 Введите кодовые слова для кнопки через запятую:")
+    register_next_step_handler_with_cancel(message, lambda m: process_magnet_button_keywords(m, keyword))
 
 def process_magnet_button_url(message, keyword):
     config = load_config()
@@ -1047,20 +1085,11 @@ def process_magnet_button_url(message, keyword):
     save_config(config)
     bot.reply_to(message, f"✅ Кодовое слово '{keyword}' создано!")
 
-def process_magnet_photo(message, keyword):
-    if message.content_type != 'photo':
-        bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте фото.")
-        return
-
+def process_magnet_button_keywords(message, keyword):
     config = load_config()
-    config["magnets"][keyword]["photo"] = message.photo[-1].file_id
+    config["magnets"][keyword]["keywords"] = [kw.strip().lower() for kw in message.text.split(',')]
     save_config(config)
-
-    if config["magnets"][keyword]["content_type"] == "photo_with_text_button":
-        bot.reply_to(message, "🖋 Введите текст для кнопки:")
-        bot.register_next_step_handler(message, lambda m: process_magnet_button_text(m, keyword))
-    else:
-        bot.reply_to(message, f"✅ Кодовое слово '{keyword}' создано!")
+    bot.reply_to(message, f"✅ Кодовое слово '{keyword}' создано!")
 
 def process_magnet_video(message, keyword):
     if message.content_type != 'video':
@@ -1068,14 +1097,31 @@ def process_magnet_video(message, keyword):
         return
 
     config = load_config()
-    config["magnets"][keyword]["video"] = message.video.file_id
+    config["magnets"][keyword]["video"] = message.video.file_id  # Сохраняем file_id видео
     save_config(config)
 
     if config["magnets"][keyword]["content_type"] == "text_with_video_button":
-        bot.reply_to(message, "🖋 Введите текст для кнопки:")
-        bot.register_next_step_handler(message, lambda m: process_magnet_button_text(m, keyword))
+        bot.reply_to(message, "📝 Введите основной текст:")
+        register_next_step_handler_with_cancel(message, lambda m: process_magnet_main_text_with_button(m, keyword))
     else:
-        bot.reply_to(message, f"✅ Кодовое слово '{keyword}' создано!")
+        bot.reply_to(message, "📝 Введите основной текст:")
+        register_next_step_handler_with_cancel(message, lambda m: process_magnet_main_text(m, keyword))
+
+def process_magnet_photo(message, keyword):
+    if message.content_type != 'photo':
+        bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте фото.")
+        return
+
+    config = load_config()
+    config["magnets"][keyword]["photo"] = message.photo[-1].file_id  # Сохраняем file_id фото
+    save_config(config)
+
+    if config["magnets"][keyword]["content_type"] in ["photo_with_text_button", "photo_with_text_keyword_button"]:
+        bot.reply_to(message, "🖋 Введите текст для кнопки:")
+        register_next_step_handler_with_cancel(message, lambda m: process_magnet_button_text_with_keywords(m, keyword))
+    else:
+        bot.reply_to(message, "📝 Введите основной текст:")
+        register_next_step_handler_with_cancel(message, lambda m: process_magnet_main_text(m, keyword))
 
 def process_magnet_voice(message, keyword):
     if message.content_type != 'voice':
@@ -1108,7 +1154,7 @@ def delete_magnet(message):
         return
     
     bot.reply_to(message, "Введите кодовое слово для удаления:")
-    bot.register_next_step_handler(message, process_delete_magnet)
+    register_next_step_handler_with_cancel(message, process_delete_magnet)
 
 def process_delete_magnet(message):
     keyword = message.text.strip().lower()
@@ -1172,16 +1218,20 @@ def handle_keywords(message):
             markup = InlineKeyboardMarkup()
             keywords = magnet.get("keywords", [])
             if keywords:
-                button_data = ",".join(keywords)
+                button_data = ",".join(keywords)  # Преобразуем список в строку
                 markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
+            else:
+                markup.add(InlineKeyboardButton(magnet["button_text"], callback_data="no_action"))  # Безопасное значение 
             bot.send_message(message.chat.id, text_content, reply_markup=markup)
         
         elif content_type == "photo_with_text_keyword_button":
             markup = InlineKeyboardMarkup()
             keywords = magnet.get("keywords", [])
             if keywords:
-                button_data = ",".join(keywords)
+                button_data = ",".join(keywords)  # Преобразуем список в строку
                 markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
+            else:
+                markup.add(InlineKeyboardButton(magnet["button_text"], callback_data="no_action"))  # Безопасное значение 
             bot.send_photo(message.chat.id, magnet["photo"], caption=text_content, reply_markup=markup)
         
         else:
