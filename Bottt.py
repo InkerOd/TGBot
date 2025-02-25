@@ -174,6 +174,7 @@ def send_magnet_content(chat_id, magnet):
 
         
 
+# Функция отправки приветственного сообщения
 def send_welcome(message):
     user_id = message.chat.id
     if user_id not in users:
@@ -193,6 +194,13 @@ def send_welcome(message):
     # Проверяем button_url
     if button_url:
         markup.add(InlineKeyboardButton(config["button_text"], url=button_url))
+    elif config["content_type"] in ["text_with_keyword_button", "photo_with_text_keyword_button"]:
+        keywords = config.get("keywords", [])
+        if keywords:
+            button_data = ",".join(keywords)  # Преобразуем список в строку
+            markup.add(InlineKeyboardButton(config["button_text"], callback_data=button_data))
+        else:
+            markup.add(InlineKeyboardButton(config["button_text"], callback_data="no_action"))  # Безопасное значение 
     
     # Отправка контента в зависимости от типа
     try:
@@ -1254,9 +1262,7 @@ def handle_callback_query(call):
     config = load_config()
     data = call.data.strip().lower()
     keywords = [kw.strip() for kw in data.split(',')]  # Удаляем пробелы в каждом слове
-    if data == "no_action":
-        bot.answer_callback_query(call.id, "⛔ Кнопка не активна.")
-        return
+    
 
     # Разделяем кодовые слова и проверяем каждое из них
     keywords = [kw.strip() for kw in data.split(',')]
@@ -1264,6 +1270,7 @@ def handle_callback_query(call):
     found = False
     for keyword in keywords:
         if "magnets" in config and keyword in config["magnets"]:
+
             magnet = config["magnets"][keyword]
             content_type = magnet["content_type"]
             text_content = magnet.get("text", "")
