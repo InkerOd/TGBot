@@ -23,13 +23,22 @@
                 "денис",
                 "вита"
             ]
+        },
+        "магнит": {
+            "keyword": "магнит",
+            "content_type": "text_with_keyword_button",
+            "text": "тут текст",
+            "button_text": "кнопка",
+            "keywords": [
+                "денис",
+                "вита"
+            ]
         }
     },
     "button_keywords": [
-        "денис",
-        "вита"
+        "магнит"
     ],
-    "content_type": "photo_with_text_keyword_button",
+    "content_type": "text_with_keyword_button",
     "text": "текст",
     "button_text": "кнопка",
     "photo": "AgACAgIAAxkBAAIQk2e9zSoxOXIyF4xZpuJqz0YpQJzGAAJd7TEbpqXwSRSQkhkiYzPYAQADAgADeAADNgQ",
