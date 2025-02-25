@@ -115,6 +115,7 @@ def handle_start(message):
             if "magnets" in config and param in config["magnets"]:
                 magnet = config["magnets"][param]
                 send_magnet_content(message.chat.id, magnet)
+                time.sleep(1)  # Добавляем задержку в 1 секунду между отправкой сообщений
             else:
                 bot.reply_to(message, f"Кодовое слово '{param}' не найдено в конфигурации.")
     else:
@@ -152,18 +153,14 @@ def send_magnet_content(chat_id, magnet):
         elif content_type == "text_with_keyword_button":
             keywords = magnet.get("keywords", [])
             if keywords:
-                button_data = ",".join(keywords)  # Преобразуем список в строку
+                button_data = ",".join(keywords)
                 markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
-            else:
-                markup.add(InlineKeyboardButton(magnet["button_text"], callback_data="no_action"))  # Безопасное значение 
             bot.send_message(chat_id, text_content, reply_markup=markup)
         elif content_type == "photo_with_text_keyword_button":
             keywords = magnet.get("keywords", [])
             if keywords:
-                button_data = ",".join(keywords)  # Преобразуем список в строку
+                button_data = ",".join(keywords)
                 markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
-            else:
-                markup.add(InlineKeyboardButton(magnet["button_text"], callback_data="no_action"))  # Безопасное значение 
             bot.send_photo(chat_id, magnet["photo"], caption=text_content, reply_markup=markup)
         else:
             bot.send_message(chat_id, "⚠️ Неподдерживаемый тип контента.")
@@ -298,9 +295,12 @@ def process_content_type(message):
     
     config = load_config()
     config["content_type"] = valid_types[content_type]
-    save_config(config)
     
-    # Запрашиваем основной текст для всех типов контента
+    # Очищаем button_url, если выбран тип с ключевыми словами
+    if config["content_type"] in ["text_with_keyword_button", "photo_with_text_keyword_button"]:
+        config["button_url"] = None  # или config.pop("button_url", None)
+    
+    # Запрашиваем основной текст для всех типов контента, кроме тех, которые только с медиа
     bot.reply_to(message, "📝 Введите основной текст:")
     register_next_step_handler_with_cancel(message, lambda m: process_main_text(m, config))
 
@@ -438,11 +438,11 @@ def delay_message(message):
         "1. Текст\n"
         "2. Текст с кнопкой\n"
         "3. Текст с видео\n"
-        "4. Текст с видео и кнопкой\n"
+        "4. Видео с кнопкой\n"
         "5. Текст с голосовым сообщением\n"
         "6. Текст с файлом\n"
         "7. Картинка с текстом\n"
-        "8. Картинка с текстом и кнопкой\n"
+        "8. Картинка с кнопкой\n"
         "9. Текст и кнопка с кодовым словом\n"
         "10. Картинка и текст и кнопка с кодовым словом"
     )
@@ -914,12 +914,12 @@ def send_content_to_all(message, context):
                 bot.send_photo(user, context["photo"], caption=text, reply_markup=markup)
             elif content_type == "text_with_keyword_button":
                 markup = InlineKeyboardMarkup()
-                button_data = ",".join([kw.strip() for kw in context["button_keywords"]])
+                button_data = ",".join([kw.strip() for kw in context["button_keywords"].split(',')])
                 markup.add(InlineKeyboardButton(context["button_text"], callback_data=button_data))
                 bot.send_message(user, text, reply_markup=markup)
             elif content_type == "photo_with_text_keyword_button":
                 markup = InlineKeyboardMarkup()
-                button_data = ",".join([kw.strip() for kw in context["button_keywords"]])
+                button_data = ",".join([kw.strip() for kw in context["button_keywords"].split(',')])
                 markup.add(InlineKeyboardButton(context["button_text"], callback_data=button_data))
                 bot.send_photo(user, context["photo"], caption=text, reply_markup=markup)
         except Exception as e:
@@ -1218,20 +1218,16 @@ def handle_keywords(message):
             markup = InlineKeyboardMarkup()
             keywords = magnet.get("keywords", [])
             if keywords:
-                button_data = ",".join(keywords)  # Преобразуем список в строку
+                button_data = ",".join(keywords)
                 markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
-            else:
-                markup.add(InlineKeyboardButton(magnet["button_text"], callback_data="no_action"))  # Безопасное значение 
             bot.send_message(message.chat.id, text_content, reply_markup=markup)
         
         elif content_type == "photo_with_text_keyword_button":
             markup = InlineKeyboardMarkup()
             keywords = magnet.get("keywords", [])
             if keywords:
-                button_data = ",".join(keywords)  # Преобразуем список в строку
+                button_data = ",".join(keywords)
                 markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
-            else:
-                markup.add(InlineKeyboardButton(magnet["button_text"], callback_data="no_action"))  # Безопасное значение 
             bot.send_photo(message.chat.id, magnet["photo"], caption=text_content, reply_markup=markup)
         
         else:
