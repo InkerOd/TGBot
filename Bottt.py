@@ -153,14 +153,18 @@ def send_magnet_content(chat_id, magnet):
         elif content_type == "text_with_keyword_button":
             keywords = magnet.get("keywords", [])
             if keywords:
-                button_data = ",".join(keywords)
-                markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
+               button_data = ",".join(keywords)  # Преобразуем список в строку
+               markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
+            else:
+               markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))  # Безопасное значение 
             bot.send_message(chat_id, text_content, reply_markup=markup)
         elif content_type == "photo_with_text_keyword_button":
             keywords = magnet.get("keywords", [])
             if keywords:
-                button_data = ",".join(keywords)
-                markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
+               button_data = ",".join(keywords)  # Преобразуем список в строку
+               markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
+            else:
+               markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))  # Безопасное значение 
             bot.send_photo(chat_id, magnet["photo"], caption=text_content, reply_markup=markup)
         else:
             bot.send_message(chat_id, "⚠️ Неподдерживаемый тип контента.")
@@ -232,11 +236,21 @@ def send_welcome(message):
             bot.send_photo(user_id, config["photo"], caption=config["text"], reply_markup=markup)
         
         elif config["content_type"] == "text_with_keyword_button":
-            markup.add(InlineKeyboardButton(config["button_text"], callback_data=config["button_keywords"]))
+            keywords = config.get("keywords", [])
+            if keywords:
+                button_data = ",".join(keywords)  # Преобразуем список в строку
+                markup.add(InlineKeyboardButton(config["button_text"], callback_data=button_data))
+            else:
+                 markup.add(InlineKeyboardButton(config["button_text"], callback_data="no_action"))  # Безопасное значение 
             bot.send_message(user_id, config["text"], reply_markup=markup)
         
         elif config["content_type"] == "photo_with_text_keyword_button":
-            markup.add(InlineKeyboardButton(config["button_text"], callback_data=config["button_keywords"]))
+            keywords = config.get("keywords", [])
+            if keywords:
+               button_data = ",".join(keywords)  # Преобразуем список в строку
+               markup.add(InlineKeyboardButton(config["button_text"], callback_data=button_data))
+            else:
+               markup.add(InlineKeyboardButton(config["button_text"], callback_data="no_action"))  # Безопасное значение 
             bot.send_photo(user_id, config["photo"], caption=config["text"], reply_markup=markup)
         
         else:
@@ -1239,6 +1253,10 @@ def handle_keywords(message):
 def handle_callback_query(call):
     config = load_config()
     data = call.data.strip().lower()
+    keywords = [kw.strip() for kw in data.split(',')]  # Удаляем пробелы в каждом слове
+    if data == "no_action":
+        bot.answer_callback_query(call.id, "⛔ Кнопка не активна.")
+        return
 
     # Разделяем кодовые слова и проверяем каждое из них
     keywords = [kw.strip() for kw in data.split(',')]
@@ -1301,6 +1319,7 @@ def handle_callback_query(call):
                 bot.send_message(call.message.chat.id, "⚠️ Ошибка при загрузке контента.")
     
     if not found:
+        print(f"❌ Кодовое слово '{data}' не найдено в конфиге: {list(config['magnets'].keys())}")
         bot.send_message(call.message.chat.id, "❌ Кодовое слово не найдено.")
 
 
