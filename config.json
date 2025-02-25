@@ -1,12 +1,4 @@
 {
-    "content_type": "photo_with_text_keyword_button",
-    "text": "Текст",
-    "photo": "AgACAgIAAxkBAAIBY2e7bgpq7rK307QbYo2qYsxOpi_HAAKW7zEbZNzgSfrAusms7pkDAQADAgADeQADNgQ",
-    "button_text": "Кока",
-    "keywords": [
-        "денис",
-        "вита"
-    ],
     "magnets": {
         "денис": {
             "content_type": "photo_with_text",
@@ -18,18 +10,30 @@
             "text": "Красотка",
             "photo": "AgACAgIAAxkBAAIBo2e7cDT8Kzet0VgXtiI3G8LeErY4AAKo7zEbZNzgSeB5gGN-teLDAQADAgADeQADNgQ"
         },
-        "магнит": {
+        "button_url": null,
+        "video": "BAACAgIAAxkBAAIKnWe9mwGbfKXFdaopAbgoKIfTws3bAAKXaQACJxfpSTSVouOA2jTyNgQ",
+        "voice": "AwACAgIAAxkBAAIL8We9oP6SaeYslR6--P1NGy9HLv1nAAIzagACJxfpSdN1l_MK0qRrNgQ",
+        "document": "BQACAgIAAxkBAAIL-2e9oRZd3bhFdvUER-8hWsVn0gmkAAI2agACJxfpSY4jfEMjdGP4NgQ",
+        "тест": {
+            "keyword": "тест",
             "content_type": "photo_with_text_keyword_button",
-            "keyword": "магнит",
-            "photo": "AgACAgIAAxkBAAID3me8dzgtt7nHoo_facvvfxGs19ucAAJOAzIbpqXgSVnXAuGOdMGMAQADAgADeQADNgQ",
-            "text": "текст",
+            "photo": "AgACAgIAAxkBAAIBl2e7cAS5fRhYZedfTWJUQwmRukmwAAKl7zEbZNzgSRLsI_Eld9izAQADAgADeQADNgQ",
             "button_text": "кнопка",
-            "button_keywords": "денис, вита"
-        },
-        "стол": {
-            "content_type": "text",
-            "text": "текст"
-        },
-        "/create_magnet": {}
-    }
+            "keywords": [
+                "денис",
+                "вита"
+            ]
+        }
+    },
+    "button_keywords": [
+        "денис",
+        "вита"
+    ],
+    "content_type": "photo_with_text_keyword_button",
+    "text": "текст",
+    "button_text": "кнопка",
+    "photo": "AgACAgIAAxkBAAIQk2e9zSoxOXIyF4xZpuJqz0YpQJzGAAJd7TEbpqXwSRSQkhkiYzPYAQADAgADeAADNgQ",
+    "button_url": null,
+    "video": "BAACAgIAAxkBAAIFM2e8hml2MrtQR5nnsnU2dZ_CBB2RAAKuZQAC8qI4S5AT_Y2bPQxVNgQ",
+    "voice": "AwACAgIAAxkBAAIQiWe9zREYsqoK3926sclJbk09tUedAAKRaQACpqXwSawwFZHzBbSvNgQ"
 }
