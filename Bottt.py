@@ -719,7 +719,7 @@ def process_delay_datetime(message, context):
         delayed_messages.append({
             "message_id": message_id,
             "chat_id": message.chat.id,
-            "scheduled_time": scheduled_time.strftime("%d-%m-%Y %H:%M:%S"),
+            "scheduled_time": scheduled_time.strftime("%d-%m-%Y %H:%M:%S"),  # сохраняем как строку
             "content_type": context["content_type"],
             "content": context,  # Все данные контента
             "users": list(users)  # Преобразуем множество в список
@@ -744,7 +744,7 @@ import threading
 def send_delayed_content(context):
     try:
         # Преобразуем строку времени обратно в объект datetime
-        scheduled_time = datetime.strptime(context["scheduled_time"], "%d-%m-%Y %H:%M:%S")
+        scheduled_time = datetime.strptime(context["scheduled_time"], "%d-%m-%Y %H:%М:%S")
         print(f"Запланировано сообщение на {scheduled_time}")  # Отладочный вывод
 
         # Вычисляем задержку в секундах
