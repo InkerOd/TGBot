@@ -33,11 +33,18 @@ def load_users():
     global users
     try:
         with open(USERS_FILE, 'r', encoding='utf-8') as file:
-            users = set(map(int, json.load(file)))  # Преобразуем в int
-        print(f"Загружено {len(users)} пользователей: {users}")  # Проверка
-    except (FileNotFoundError, json.JSONDecodeError):
-        print("Файл users.json не найден или пуст. Создаём новый.")
+            data = file.read()
+            if data:
+                users = set(map(int, json.loads(data)))  # Преобразуем в int
+                print(f"Загружено {len(users)} пользователей: {users}")  # Проверка
+            else:
+                print("Файл users.json пуст. Создаём новый.")
+                users = set()
+                save_users()
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Ошибка при загрузке файла users.json: {e}")
         users = set()
+        save_users() 
 
 # Функция сохранения пользователей в файл
 def save_users():
@@ -50,6 +57,41 @@ def add_user(user_id):
         users.add(user_id)
         save_users()
         print(f"Пользователь {user_id} добавлен в список.")
+
+        # Загрузка данных из файла
+def load_delayed_messages():
+    # Если файл не существует, возвращаем пустой список
+    if not os.path.exists("delay.json"):
+        return []
+
+    # Открываем файл и загружаем данные
+    try:
+        with open("delay.json", "r", encoding="utf-8") as file:
+            data = file.read()
+            if not data:  # Если файл пустой
+                return []
+            return json.loads(data)
+    except json.JSONDecodeError:
+        # Если файл содержит некорректный JSON
+        return []
+
+def save_delayed_messages(messages):
+    # Преобразуем множества в списки
+    def convert_sets(obj):
+        if isinstance(obj, set):
+            return list(obj)
+        elif isinstance(obj, dict):
+            return {key: convert_sets(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_sets(item) for item in obj]
+        return obj
+
+    # Применяем преобразование ко всему объекту
+    messages = convert_sets(messages)
+
+    # Сохраняем данные в файл
+    with open("delay.json", "w", encoding="utf-8") as file:
+        json.dump(messages, file, ensure_ascii=False, indent=4)
 
 # Загрузка конфигурации
 def load_config():
@@ -103,21 +145,37 @@ def register_next_step_handler_with_cancel(message, next_step_handler, *args):
     """
     bot.register_next_step_handler(message, lambda m: check_cancel(m, next_step_handler, *args))
 
+@bot.message_handler(commands=['list_magnets'])
+def list_magnets(message):
+    if message.chat.id not in administrators:
+        bot.reply_to(message, "У вас нет прав для выполнения этой команды.")
+        return
+    
+    config = load_config()
+    if "magnets" in config and config["magnets"]:
+        magnet_list = "\n".join(config["magnets"].keys())
+        bot.reply_to(message, f"Список кодовых слов:\n{magnet_list}")
+    else:
+        bot.reply_to(message, "Список кодовых слов пуст.")
+
 # Обновленный обработчик /start
 @bot.message_handler(commands=['start'])
 def handle_start(message):
-    raw_params = message.text.split(' ')[1] if len(message.text.split(' ')) > 1 else None
+    # Добавляем пользователя в список, если его там нет
+    user_id = message.chat.id
+    if user_id not in users:
+        users.add(user_id)
+        save_users()
+    param = message.text.split(' ')[1] if len(message.text.split(' ')) > 1 else None
+    
 
-    if raw_params:
-        params = unquote(raw_params).split('&')  # Декодируем параметры из URL и разделяем по амперсанду
-        for param in params:
-            param = param.strip()
-            if "magnets" in config and param in config["magnets"]:
-                magnet = config["magnets"][param]
-                send_magnet_content(message.chat.id, magnet)
-                time.sleep(1)  # Добавляем задержку в 1 секунду между отправкой сообщений
-            else:
-                bot.reply_to(message, f"Кодовое слово '{param}' не найдено в конфигурации.")
+    if param:
+        param = unquote(param)  # Декодируем параметр из URL
+        if "magnets" in config and param in config["magnets"]:
+            magnet = config["magnets"][param]
+            send_magnet_content(message.chat.id, magnet)
+        else:
+            bot.reply_to(message, "Кодовое слово не найдено в конфигурации.")
     else:
         send_welcome(message)
 
@@ -177,8 +235,8 @@ def send_magnet_content(chat_id, magnet):
 # Функция отправки приветственного сообщения
 def send_welcome(message):
     user_id = message.chat.id
-    if user_id not in users:
-        add_user(user_id)  # Добавляем пользователя в список и сохраняем его
+    
+    
     
     # Загружаем конфигурацию
     config = load_config()
@@ -195,12 +253,10 @@ def send_welcome(message):
     if button_url:
         markup.add(InlineKeyboardButton(config["button_text"], url=button_url))
     elif config["content_type"] in ["text_with_keyword_button", "photo_with_text_keyword_button"]:
-        keywords = config.get("keywords", [])
+        keywords = config.get("button_keywords", [])
         if keywords:
             button_data = ",".join(keywords)  # Преобразуем список в строку
             markup.add(InlineKeyboardButton(config["button_text"], callback_data=button_data))
-        else:
-            markup.add(InlineKeyboardButton(config["button_text"], callback_data="no_action"))  # Безопасное значение 
     
     # Отправка контента в зависимости от типа
     try:
@@ -244,22 +300,12 @@ def send_welcome(message):
             bot.send_photo(user_id, config["photo"], caption=config["text"], reply_markup=markup)
         
         elif config["content_type"] == "text_with_keyword_button":
-            keywords = config.get("keywords", [])
-            if keywords:
-                button_data = ",".join(keywords)  # Преобразуем список в строку
-                markup.add(InlineKeyboardButton(config["button_text"], callback_data=button_data))
-            else:
-                 markup.add(InlineKeyboardButton(config["button_text"], callback_data="no_action"))  # Безопасное значение 
-            bot.send_message(user_id, config["text"], reply_markup=markup)
+            if keywords:  # Убедимся, что есть ключевые слова
+                bot.send_message(user_id, config["text"], reply_markup=markup)
         
         elif config["content_type"] == "photo_with_text_keyword_button":
-            keywords = config.get("keywords", [])
-            if keywords:
-               button_data = ",".join(keywords)  # Преобразуем список в строку
-               markup.add(InlineKeyboardButton(config["button_text"], callback_data=button_data))
-            else:
-               markup.add(InlineKeyboardButton(config["button_text"], callback_data="no_action"))  # Безопасное значение 
-            bot.send_photo(user_id, config["photo"], caption=config["text"], reply_markup=markup)
+            if keywords:  # Убедимся, что есть ключевые слова
+               bot.send_photo(user_id, config["photo"], caption=config["text"], reply_markup=markup)
         
         else:
             bot.send_message(user_id, "Контент для команды /start не настроен.")
@@ -273,7 +319,7 @@ def handle_text_start(message):
     send_welcome(message)
 
 # Команда для обновления конфигурации
-@bot.message_handler(commands=['set_start_content'])
+@bot.message_handler(commands=['set_start_content']) 
 def set_start_content(message):
     if message.chat.id not in administrators:
         bot.reply_to(message, "У вас нет прав для выполнения этой команды.")
@@ -320,38 +366,50 @@ def process_content_type(message):
     
     # Очищаем button_url, если выбран тип с ключевыми словами
     if config["content_type"] in ["text_with_keyword_button", "photo_with_text_keyword_button"]:
-        config["button_url"] = None  # или config.pop("button_url", None)
-    
-    # Запрашиваем основной текст для всех типов контента, кроме тех, которые только с медиа
-    bot.reply_to(message, "📝 Введите основной текст:")
-    register_next_step_handler_with_cancel(message, lambda m: process_main_text(m, config))
+        config["button_url"] = None  
+
+    # Фото или видео — сначала запрашиваем файл, затем текст
+    if config["content_type"] in ["photo_with_text", "photo_with_text_button", "photo_with_text_keyword_button"]:
+        bot.reply_to(message, "🖼 Отправьте фото:")
+        register_next_step_handler_with_cancel(message, lambda m: process_photo(m, config))
+    elif config["content_type"] in ["text_with_video", "text_with_video_button"]:
+        bot.reply_to(message, "🎥 Отправьте видео:")
+        register_next_step_handler_with_cancel(message, lambda m: process_video(m, config))
+    else:
+        bot.reply_to(message, "📝 Введите основной текст:")
+        register_next_step_handler_with_cancel(message, lambda m: process_main_text(m, config))
 
 def process_main_text(message, config):
     config["text"] = message.text
     save_config(config)
-    
-    if config["content_type"] in ["text_with_button", "text_with_video_button", "photo_with_text_button", "text_with_keyword_button", "photo_with_text_keyword_button"]:
-        bot.reply_to(message, "🖋 Введите текст для кнопки:")
-        register_next_step_handler_with_cancel(message, lambda m: process_button_text(m, config))
-    elif config["content_type"] in ["text_with_video", "text_with_video_button"]:
-        bot.reply_to(message, "🎥 Отправьте видео:")
-        register_next_step_handler_with_cancel(message, lambda m: process_video(m, config))
-    elif config["content_type"] == "text_with_voice":
+
+      # Если требуется голосовое сообщение или документ, запрашиваем их после текста
+    if config["content_type"] == "text_with_voice":
         bot.reply_to(message, "🎤 Отправьте голосовое сообщение:")
         register_next_step_handler_with_cancel(message, lambda m: process_voice(m, config))
+        return  # ⬅ Убираем лишнее сообщение
     elif config["content_type"] == "text_with_document":
         bot.reply_to(message, "📎 Отправьте файл:")
         register_next_step_handler_with_cancel(message, lambda m: process_document(m, config))
-    elif config["content_type"] in ["photo_with_text", "photo_with_text_button", "photo_with_text_keyword_button"]:
-        bot.reply_to(message, "🖼 Отправьте фото:")
-        register_next_step_handler_with_cancel(message, lambda m: process_photo(m, config))
+        return  # ⬅ Убираем лишнее сообщение
+    elif config["content_type"] in ["text_with_button", "text_with_video_button", "photo_with_text_button", "text_with_keyword_button", "photo_with_text_keyword_button"]:
+        bot.reply_to(message, "🖋 Введите текст для кнопки:")
+        register_next_step_handler_with_cancel(message, lambda m: process_button_text(m, config))
+        return
     else:
-        bot.reply_to(message, f"✅ Конфигурация обновлена!")
+        bot.reply_to(message, "✅ Конфигурация обновлена!")
+
+    # Запрашиваем кнопку, если она нужна
+    if config["content_type"] in ["text_with_button", "text_with_video_button", "photo_with_text_button", "text_with_keyword_button", "photo_with_text_keyword_button"]:
+        bot.reply_to(message, "🖋 Введите текст для кнопки:")
+        register_next_step_handler_with_cancel(message, lambda m: process_button_text(m, config))
+   
 
 def process_button_text(message, config):
     config["button_text"] = message.text
     save_config(config)
-    
+
+    # Кодовые слова или URL для кнопки
     if config["content_type"] in ["text_with_keyword_button", "photo_with_text_keyword_button"]:
         bot.reply_to(message, "🔗 Введите кодовые слова для кнопки через запятую:")
         register_next_step_handler_with_cancel(message, lambda m: process_button_keywords(m, config))
@@ -376,12 +434,10 @@ def process_photo(message, config):
 
     config["photo"] = message.photo[-1].file_id
     save_config(config)
-    
-    if config["content_type"] in ["photo_with_text_button", "photo_with_text_keyword_button"]:
-        bot.reply_to(message, "🖋 Введите текст для кнопки:")
-        register_next_step_handler_with_cancel(message, lambda m: process_button_text(m, config))
-    else:
-        bot.reply_to(message, "✅ Конфигурация обновлена!")
+
+    # После фото всегда должен быть текст
+    bot.reply_to(message, "📝 Введите основной текст:")
+    register_next_step_handler_with_cancel(message, lambda m: process_main_text(m, config))
 
 def process_video(message, config):
     if message.content_type != 'video':
@@ -390,14 +446,26 @@ def process_video(message, config):
 
     config["video"] = message.video.file_id
     save_config(config)
-    
+
+    # Если это "text_with_video_button", сначала запрашиваем основной текст, затем кнопку
     if config["content_type"] == "text_with_video_button":
-        bot.reply_to(message, "🖋 Введите текст для кнопки:")
-        register_next_step_handler_with_cancel(message, lambda m: process_button_text(m, config))
+        bot.reply_to(message, "📝 Введите основной текст:")
+        register_next_step_handler_with_cancel(message, lambda m: process_main_text_then_button(m, config))
     else:
-        bot.reply_to(message, "✅ Конфигурация обновлена!")
+        bot.reply_to(message, "📝 Введите основной текст:")
+        register_next_step_handler_with_cancel(message, lambda m: process_main_text(m, config))
+
+def process_main_text_then_button(message, config):
+    """ Запрашивает основной текст, затем кнопку """
+    config["text"] = message.text
+    save_config(config)
+
+    bot.reply_to(message, "🖋 Введите текст для кнопки:")
+    register_next_step_handler_with_cancel(message, lambda m: process_button_text(m, config))
+
 
 def process_voice(message, config):
+    """ Сохраняет голосовое сообщение """
     if message.content_type != 'voice':
         bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте голосовое сообщение.")
         return
@@ -407,6 +475,7 @@ def process_voice(message, config):
     bot.reply_to(message, "✅ Конфигурация обновлена!")
 
 def process_document(message, config):
+    """ Сохраняет файл """
     if message.content_type != 'document':
         bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте файл.")
         return
@@ -414,6 +483,7 @@ def process_document(message, config):
     config["document"] = message.document.file_id
     save_config(config)
     bot.reply_to(message, "✅ Конфигурация обновлена!")
+
 
 @bot.message_handler(commands=['add_admin'])
 def add_admin(message):
@@ -628,33 +698,83 @@ def process_delay_photo(message, context):
     register_next_step_handler_with_cancel(message, process_delay_datetime, context)
     return
 
+from datetime import datetime
+
+from datetime import datetime
+
 def process_delay_datetime(message, context):
     try:
-        # Парсим дату и время
         datetime_str = message.text.strip()
         scheduled_time = datetime.strptime(datetime_str, "%d-%m-%Y %H:%M:%S")
 
-        # Проверяем, что время в будущем
         if scheduled_time <= datetime.now():
             bot.reply_to(message, "❌ Время должно быть в будущем. Попробуйте снова.")
             return
 
-        # Сохраняем время отправки
-        context["scheduled_time"] = scheduled_time
+        # Генерируем уникальный ID для сообщения
+        delayed_messages = load_delayed_messages()
+        message_id = len(delayed_messages) + 1
 
-        # Запускаем отложенную отправку
-        threading.Thread(target=send_delayed_content, args=(context,)).start()
-        bot.reply_to(message, f"✅ Сообщение будет отправлено {scheduled_time.strftime('%d-%m-%Y %H:%M:%S')}.")
-        return
-    except ValueError:
+        # Сохраняем сообщение в список
+        delayed_messages.append({
+            "message_id": message_id,
+            "chat_id": message.chat.id,
+            "scheduled_time": scheduled_time.strftime("%d-%m-%Y %H:%M:%S"),
+            "content_type": context["content_type"],
+            "content": context,  # Все данные контента
+            "users": list(users)  # Преобразуем множество в список
+        })
+
+        # Сохраняем обновлённый список в файл
+        save_delayed_messages(delayed_messages)
+
+        # Запускаем отправку в отдельном потоке
+        threading.Thread(target=send_delayed_content, args=(delayed_messages[-1],)).start()
+
+        bot.reply_to(message, f"✅ Сообщение запланировано на {scheduled_time.strftime('%d-%m-%Y %H:%M:%S')}.\nID сообщения: {message_id}")
+    except ValueError as e:
+        print(f"Ошибка при парсинге даты: {e}")
         bot.reply_to(message, "❌ Некорректный формат даты и времени. Используйте формат ДД-ММ-ГГГГ ЧЧ:ММ:СС.")
         return
 
+import time
+from datetime import datetime
+import threading
+
 def send_delayed_content(context):
-    # Вычисляем задержку в секундах
-    delay = (context["scheduled_time"] - datetime.now()).total_seconds()
-    if delay > 0:
-        time.sleep(delay)
+    try:
+        # Преобразуем строку времени обратно в объект datetime
+        scheduled_time = datetime.strptime(context["scheduled_time"], "%d-%m-%Y %H:%M:%S")
+        print(f"Запланировано сообщение на {scheduled_time}")  # Отладочный вывод
+
+        # Вычисляем задержку в секундах
+        delay = (scheduled_time - datetime.now()).total_seconds()
+        print(f"Задержка: {delay} секунд")  # Отладочный вывод
+
+        if delay > 0:
+            print(f"Ожидание {delay} секунд...")  # Отладочный вывод
+            time.sleep(delay)
+
+        # Проверяем, не было ли сообщение отменено
+        delayed_messages = load_delayed_messages()
+        if context not in delayed_messages:
+            print("Сообщение было отменено.")  # Отладочный вывод
+            return
+
+        # Отправляем сообщение
+        for user in context["users"]:
+            try:
+                if context["content_type"] == "text":
+                    bot.send_message(user, context["content"]["text"])
+                    print(f"Сообщение отправлено пользователю {user}")  # Отладочный вывод
+                elif context["content_type"] == "video_note":
+                    bot.send_video_note(user, context["content"]["video_note"])
+                    print(f"Видеосообщение отправлено пользователю {user}")  # Отладочный вывод
+                # Остальные типы контента...
+            except Exception as e:
+                print(f"Ошибка отправки для {user}: {e}")  # Отладочный вывод
+    except Exception as e:
+        print(f"Ошибка в send_delayed_content: {e}")  # Отладочный вывод
 
     for user in users:
         try:
@@ -693,6 +813,38 @@ def send_delayed_content(context):
         except Exception as e:
             print(f"Ошибка отправки для {user}: {e}")
 
+@bot.message_handler(commands=['cancel_delayed'])
+def cancel_delayed_message(message):
+    if message.chat.id not in administrators:
+        bot.reply_to(message, "У вас нет прав для выполнения этой команды.")
+        return
+
+    # Запрашиваем ID сообщения для отмены
+    bot.reply_to(message, "📝 Введите ID сообщения, которое хотите отменить:")
+    register_next_step_handler_with_cancel(message, process_cancel_delayed)
+
+def process_cancel_delayed(message):
+    try:
+        message_id = int(message.text.strip())  # Получаем ID сообщения
+        delayed_messages = load_delayed_messages()
+
+        # Ищем сообщение в списке
+        message_to_cancel = None
+        for msg in delayed_messages:
+            if msg["message_id"] == message_id:
+                message_to_cancel = msg
+                break
+
+        if message_to_cancel:
+            # Удаляем сообщение из списка
+            delayed_messages = [msg for msg in delayed_messages if msg["message_id"] != message_id]
+            save_delayed_messages(delayed_messages)  # Сохраняем обновлённый список
+            bot.reply_to(message, f"✅ Сообщение с ID {message_id} отменено.")
+        else:
+            bot.reply_to(message, f"❌ Сообщение с ID {message_id} не найдено.")
+    except ValueError:
+        bot.reply_to(message, "❌ Некорректный ID. Введите число.")            
+
 
 @bot.message_handler(commands=['send_all'])
 def send_all(message):
@@ -705,7 +857,7 @@ def send_all(message):
         "1. Текст\n"
         "2. Текст с кнопкой\n"
         "3. Текст с видео\n"
-        "4. Видео с кнопкой\n"
+        "4. Текст с видео и кнопкой\n"
         "5. Текст с голосовым сообщением\n"
         "6. Текст с файлом\n"
         "7. Картинка с текстом\n"
@@ -741,8 +893,8 @@ def process_content_type_for_all(message):
         bot.reply_to(message, "📤 Пожалуйста, прикрепите фото.")
         register_next_step_handler_with_cancel(message, lambda m: process_photo_for_all(m, context))
     elif "video" in context["content_type"]:
-        bot.reply_to(message, "🎥 Пожалуйста, прикрепите видео.")
-        register_next_step_handler_with_cancel(message, lambda m: process_video_for_all(m, context))
+        bot.reply_to(message, "📝 Введите основной текст:")
+        register_next_step_handler_with_cancel(message, lambda m: process_main_text_for_all(m, context))
     elif "voice" in context["content_type"]:
         bot.reply_to(message, "🎤 Пожалуйста, прикрепите голосовое сообщение.")
         register_next_step_handler_with_cancel(message, lambda m: check_cancel(m, process_voice_for_all, context))
@@ -785,20 +937,33 @@ def process_video_for_all(message, context):
         return
 
     context["video"] = message.video.file_id
-    if context["content_type"] in ["text_with_video_button"]:
+    # Для text_with_video_button запрашиваем текст кнопки
+    if context["content_type"] == "text_with_video_button":
         bot.reply_to(message, "🖋 Введите текст для кнопки:")
-        register_next_step_handler_with_cancel(message, lambda m: check_cancel(m, process_button_text_for_all, context))
+        register_next_step_handler_with_cancel(message, lambda m: process_button_text_for_all(m, context))
     else:
-        bot.reply_to(message, "📝 Введите основной текст:")
-        register_next_step_handler_with_cancel(message, lambda m: check_cancel(m, process_main_text_for_all, context))
+        # Для text_with_video сразу отправляем контент
+        send_content_to_all(message, context)
+
 
 def process_main_text_for_all(message, context):
     context["text"] = message.text
 
-    if any(t in context["content_type"] for t in ["button", "keyword_button"]):
+    if "video" in context["content_type"]:
+        # Для text_with_video запрашиваем видео
+        if context["content_type"] == "text_with_video":
+            bot.reply_to(message, "🎥 Пожалуйста, прикрепите видео.")
+            register_next_step_handler_with_cancel(message, lambda m: process_video_for_all(m, context))
+        # Для text_with_video_button запрашиваем текст кнопки
+        elif context["content_type"] == "text_with_video_button":
+            bot.reply_to(message, "🖋 Введите текст для кнопки:")
+            register_next_step_handler_with_cancel(message, lambda m: process_button_text_for_all(m, context))
+    elif any(t in context["content_type"] for t in ["button", "keyword_button"]):
+        # Для других типов с кнопками запрашиваем текст кнопки
         bot.reply_to(message, "📝 Введите текст кнопки:")
         register_next_step_handler_with_cancel(message, lambda m: process_button_text_for_all(m, context))
     else:
+        # Для типов без кнопок сразу отправляем контент
         send_content_to_all(message, context)
 
 def process_button_text_for_all(message, context):
@@ -976,6 +1141,68 @@ def send_selfie_to_all(message):
         except Exception as e:
             print(f"Ошибка при отправке видеосообщения пользователю {user}: {e}")
 
+@bot.message_handler(commands=['delay_selfie'])
+def delay_selfie(message):
+    if message.chat.id not in administrators:
+        bot.reply_to(message, "У вас нет прав для выполнения этой команды.")
+        return
+
+    # Запрашиваем видеосообщение
+    bot.reply_to(message, "🎥 Пожалуйста, отправьте видеосообщение.")
+    register_next_step_handler_with_cancel(message, process_video_note_for_delay)
+
+def process_video_note_for_delay(message):
+    if message.content_type != 'video_note':
+        bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте видеосообщение.")
+        return
+
+    # Сохраняем ID видеосообщения
+    context = {"content_type": "video_note", "video_note": message.video_note.file_id}
+
+    # Запрашиваем дату и время отправки
+    bot.reply_to(message, "📅 Введите дату и время отправки в формате ДД-ММ-ГГГГ ЧЧ:ММ:СС")
+    register_next_step_handler_with_cancel(message, lambda m: process_delay_datetime(m, context))
+
+def send_delayed_content(context):
+    # Вычисляем задержку в секундах
+    delay = (context["scheduled_time"] - datetime.now()).total_seconds()
+    if delay > 0:
+        time.sleep(delay)
+
+     # Проверяем, не было ли сообщение отменено
+    delayed_messages = load_delayed_messages()
+    if context not in delayed_messages:
+        return  # Сообщение было отменено    
+
+    for user in users:
+        try:
+            if context["content_type"] == "video_note":
+                bot.send_video_note(user, context["video_note"])
+            # Остальные типы контента...
+        except Exception as e:
+            print(f"Ошибка отправки для {user}: {e}")
+
+@bot.message_handler(commands=['list_delayed'])
+def list_delayed_messages(message):
+    if message.chat.id not in administrators:
+        bot.reply_to(message, "У вас нет прав для выполнения этой команды.")
+        return
+
+    delayed_messages = load_delayed_messages()
+    if not delayed_messages:
+        bot.reply_to(message, "Нет запланированных сообщений.")
+        return
+
+    response = "📅 Запланированные сообщения:\n"
+    for msg in delayed_messages:
+        response += (
+            f"ID: {msg['message_id']}\n"
+            f"Тип: {msg['content_type']}\n"
+            f"Время отправки: {msg['scheduled_time']}\n\n"
+        )
+
+    bot.reply_to(message, response)            
+
             # Команда /create_magnet
 @bot.message_handler(commands=['create_magnet'])
 def create_magnet(message):
@@ -1050,14 +1277,14 @@ def process_magnet_content_type(message, keyword):
         bot.reply_to(message, "📝 Введите основной текст:")
         register_next_step_handler_with_cancel(message, lambda m: process_magnet_main_text_with_button(m, keyword))
     elif valid_types[content_type] in ["text_with_video", "text_with_video_button"]:
-        bot.reply_to(message, "🎥 Отправьте видео:")
-        register_next_step_handler_with_cancel(message, lambda m: process_magnet_video(m, keyword))
+        bot.reply_to(message, "📝 Введите основной текст:")
+        register_next_step_handler_with_cancel(message, lambda m: process_magnet_main_text_with_video(m, keyword))
     elif valid_types[content_type] == "text_with_voice":
-        bot.reply_to(message, "🎤 Отправьте голосовое сообщение:")
-        register_next_step_handler_with_cancel(message, lambda m: process_magnet_voice(m, keyword))
+        bot.reply_to(message, "📝 Введите основной текст:")
+        register_next_step_handler_with_cancel(message, lambda m: process_magnet_main_text_with_voice(m, keyword))
     elif valid_types[content_type] == "text_with_document":
-        bot.reply_to(message, "📎 Отправьте файл:")
-        register_next_step_handler_with_cancel(message, lambda m: process_magnet_document(m, keyword))
+        bot.reply_to(message, "📝 Введите основной текст:")
+        register_next_step_handler_with_cancel(message, lambda m: process_magnet_main_text_with_document(m, keyword))
     elif valid_types[content_type] in ["photo_with_text", "photo_with_text_button", "photo_with_text_keyword_button"]:
         bot.reply_to(message, "🖼 Отправьте фото:")
         register_next_step_handler_with_cancel(message, lambda m: process_magnet_photo(m, keyword))
@@ -1066,6 +1293,27 @@ def process_magnet_content_type(message, keyword):
         register_next_step_handler_with_cancel(message, lambda m: process_magnet_main_text_with_keyword_button(m, keyword))
     else:
         bot.reply_to(message, f"✅ Кодовое слово '{keyword}' создано!")
+
+def process_magnet_main_text_with_video(message, keyword):
+    config = load_config()
+    config["magnets"][keyword]["text"] = message.text
+    save_config(config)
+    bot.reply_to(message, "🎥 Отправьте видео:")
+    register_next_step_handler_with_cancel(message, lambda m: process_magnet_video(m, keyword))
+
+def process_magnet_main_text_with_voice(message, keyword):
+    config = load_config()
+    config["magnets"][keyword]["text"] = message.text
+    save_config(config)
+    bot.reply_to(message, "🎤 Отправьте голосовое сообщение:")
+    register_next_step_handler_with_cancel(message, lambda m: process_magnet_voice(m, keyword))
+
+def process_magnet_main_text_with_document(message, keyword):
+    config = load_config()
+    config["magnets"][keyword]["text"] = message.text
+    save_config(config)
+    bot.reply_to(message, "📎 Отправьте файл:")
+    register_next_step_handler_with_cancel(message, lambda m: process_magnet_document(m, keyword))
 
 def process_magnet_main_text(message, keyword):
     config = load_config()
@@ -1079,6 +1327,7 @@ def process_magnet_main_text_with_button(message, keyword):
     save_config(config)
     bot.reply_to(message, "🖋 Введите текст для кнопки:")
     register_next_step_handler_with_cancel(message, lambda m: process_magnet_button_text(m, keyword))
+
 
 def process_magnet_main_text_with_keyword_button(message, keyword):
     config = load_config()
@@ -1138,9 +1387,12 @@ def process_magnet_photo(message, keyword):
     config["magnets"][keyword]["photo"] = message.photo[-1].file_id  # Сохраняем file_id фото
     save_config(config)
 
-    if config["magnets"][keyword]["content_type"] in ["photo_with_text_button", "photo_with_text_keyword_button"]:
-        bot.reply_to(message, "🖋 Введите текст для кнопки:")
-        register_next_step_handler_with_cancel(message, lambda m: process_magnet_button_text_with_keywords(m, keyword))
+    if config["magnets"][keyword]["content_type"] == "photo_with_text_button":
+        bot.reply_to(message, "📝 Введите основной текст:")
+        register_next_step_handler_with_cancel(message, lambda m: process_magnet_main_text_with_button(m, keyword))
+    elif config["magnets"][keyword]["content_type"] == "photo_with_text_keyword_button":
+        bot.reply_to(message, "📝 Введите основной текст:")
+        register_next_step_handler_with_cancel(message, lambda m: process_magnet_main_text_with_keyword_button(m, keyword))
     else:
         bot.reply_to(message, "📝 Введите основной текст:")
         register_next_step_handler_with_cancel(message, lambda m: process_magnet_main_text(m, keyword))
@@ -1262,15 +1514,10 @@ def handle_callback_query(call):
     config = load_config()
     data = call.data.strip().lower()
     keywords = [kw.strip() for kw in data.split(',')]  # Удаляем пробелы в каждом слове
-    
-
-    # Разделяем кодовые слова и проверяем каждое из них
-    keywords = [kw.strip() for kw in data.split(',')]
 
     found = False
     for keyword in keywords:
         if "magnets" in config and keyword in config["magnets"]:
-
             magnet = config["magnets"][keyword]
             content_type = magnet["content_type"]
             text_content = magnet.get("text", "")
@@ -1324,7 +1571,7 @@ def handle_callback_query(call):
             except Exception as e:
                 print(f"Ошибка отправки контента для {call.message.chat.id}: {e}")
                 bot.send_message(call.message.chat.id, "⚠️ Ошибка при загрузке контента.")
-    
+
     if not found:
         print(f"❌ Кодовое слово '{data}' не найдено в конфиге: {list(config['magnets'].keys())}")
         bot.send_message(call.message.chat.id, "❌ Кодовое слово не найдено.")
@@ -1332,5 +1579,6 @@ def handle_callback_query(call):
 
 # Запуск бота
 print("Бот запущен")  # Отладка
+print(f"Текущее время: {datetime.now()}")
 
 bot.polling(none_stop=True)
