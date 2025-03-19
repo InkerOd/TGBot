@@ -87,7 +87,6 @@ load_users()
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
-
 # Функция для отмены текущего процесса
 def cancel_request(message):
     bot.reply_to(message, "Команда отменена.")
@@ -203,7 +202,7 @@ def send_magnet_content(chat_id, magnet):
         elif content_type == "text_with_video_button":
             bot.send_video(chat_id, magnet["video"], caption=text_content, reply_markup=markup)
         elif content_type == "text_with_voice":
-            bot.send_voice(chat_id, magnet["voice"], caption=text_content)
+            bot.send_audio(chat_id, magnet["voice"], caption=text_content)
         elif content_type == "text_with_document":
             bot.send_document(chat_id, magnet["document"], caption=text_content)
         elif content_type == "photo_with_text":
@@ -213,18 +212,14 @@ def send_magnet_content(chat_id, magnet):
         elif content_type == "text_with_keyword_button":
             keywords = magnet.get("keywords", [])
             if keywords:
-               button_data = ",".join(keywords)  # Преобразуем список в строку
+               button_data = ",".join(keywords)
                markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
-            else:
-               markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))  # Безопасное значение 
             bot.send_message(chat_id, text_content, reply_markup=markup)
         elif content_type == "photo_with_text_keyword_button":
             keywords = magnet.get("keywords", [])
             if keywords:
-               button_data = ",".join(keywords)  # Преобразуем список в строку
+               button_data = ",".join(keywords)
                markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
-            else:
-               markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))  # Безопасное значение 
             bot.send_photo(chat_id, magnet["photo"], caption=text_content, reply_markup=markup)
         else:
             bot.send_message(chat_id, "⚠️ Неподдерживаемый тип контента.")
@@ -468,11 +463,18 @@ def process_main_text_then_button(message, config):
 
 def process_voice(message, config):
     """ Сохраняет голосовое сообщение """
-    if message.content_type != 'voice':
-        bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте голосовое сообщение.")
+    if message.content_type not in ['voice', 'document']:
+        bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте голосовое сообщение или файл формата .ogg.")
         return
 
-    config["voice"] = message.voice.file_id
+    if message.content_type == 'voice':
+        config["voice"] = message.voice.file_id
+    elif message.content_type == 'document' and message.document.mime_type == 'audio/ogg':
+        config["voice"] = message.document.file_id
+    else:
+        bot.reply_to(message, "❌ Некорректный тип файла. Пожалуйста, отправьте файл формата .ogg.")
+        return
+
     save_config(config)
     bot.reply_to(message, "✅ Конфигурация обновлена!")
 
@@ -835,14 +837,20 @@ def process_photo_for_all(message, context):
     register_next_step_handler_with_cancel(message, lambda m: process_main_text_for_all(m, context))
 
 def process_voice_for_all(message, context):
-    if message.content_type != 'voice':
-        bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте голосовое сообщение.")
+    if message.content_type not in ['voice', 'document']:
+        bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте голосовое сообщение или файл формата .ogg.")
         return
 
-    context["voice"] = message.voice.file_id
+    if message.content_type == 'voice':
+        context["voice"] = message.voice.file_id
+    elif message.content_type == 'document' and message.document.mime_type == 'audio/ogg':
+        context["voice"] = message.document.file_id
+    else:
+        bot.reply_to(message, "❌ Некорректный тип файла. Пожалуйста, отправьте файл формата .ogg.")
+        return
+
     bot.reply_to(message, "📝 Введите основной текст:")
     register_next_step_handler_with_cancel(message, lambda m: check_cancel(m, process_main_text_for_all, context))
-
 def process_document_for_all(message, context):
     if message.content_type != 'document':
         bot.reply_to(message, "❌ Некорректный тип сообщения. Пожалуйста, отправьте файл.")
@@ -913,7 +921,7 @@ def send_content_to_all(message, context):
                 markup.add(InlineKeyboardButton(context["button_text"], url=context["button_url"]))
                 bot.send_video(user, context["video"], caption=text, reply_markup=markup)
             elif content_type == "text_with_voice":
-                bot.send_voice(user, context["voice"], caption=text)
+                bot.send_audio(user, context["voice"], caption=text)
             elif content_type == "text_with_document":
                 bot.send_document(user, context["document"], caption=text)
             elif content_type == "photo_with_text":
@@ -936,7 +944,7 @@ def send_content_to_all(message, context):
             print(f"Ошибка отправки для {user}: {e}")
 
     bot.reply_to(message, "✅ Контент успешно отправлен всем пользователям!")
-    return  # Добавлено прерывание
+    return
 
 @bot.message_handler(commands=['send_selfie'])
 def send_selfie_request(message):
