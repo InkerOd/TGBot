@@ -25,6 +25,7 @@ CONFIG_FILE = 'config.json'
 
 logging.basicConfig(level=logging.INFO)
 
+
 # Список администраторов
 administrators = {447640188, 600164937, 339175430}
 
@@ -84,7 +85,8 @@ def save_config(config):
 # Загрузка пользователей при старте бота
 load_users()
 
-bot = telebot.TeleBot(TOKEN)
+bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
+
 
 # Функция для отмены текущего процесса
 def cancel_request(message):
@@ -124,7 +126,7 @@ def list_magnets(message):
     else:
         bot.reply_to(message, "Список кодовых слов пуст.")
 
-# Обновленный обработчик /start
+
 import json
 from urllib.parse import unquote
 
@@ -147,6 +149,8 @@ def save_users():
     with open(USERS_FILE, 'w', encoding='utf-8') as file:
         json.dump(list(users), file, ensure_ascii=False, indent=4)
 
+        
+# Обновленный обработчик /start
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     global users  # Используем глобальный список пользователей
@@ -158,6 +162,13 @@ def handle_start(message):
         users.add(user_id)
         save_users()
         print(f"✅ Добавлен новый пользователь: {user_id}")
+
+         # Отправляем уведомление администраторам
+        for admin_id in administrators:
+            try:
+                bot.send_message(admin_id, f"Новый пользователь добавлен: {user_id}")
+            except Exception as e:
+                print(f"Не удалось отправить сообщение администратору {admin_id}: {e}")
 
     if param:
         param = unquote(param)  # Декодируем параметр из URL
@@ -521,11 +532,11 @@ def delay_message(message):
         "1. Текст\n"
         "2. Текст с кнопкой\n"
         "3. Текст с видео\n"
-        "4. Видео с кнопкой\n"
+        "4. Текст с видео и кнопкой\n"
         "5. Текст с голосовым сообщением\n"
         "6. Текст с файлом\n"
         "7. Картинка с текстом\n"
-        "8. Картинка с кнопкой\n"
+        "8. Картинка с текстом кнопкой\n"
         "9. Текст и кнопка с кодовым словом\n"
         "10. Картинка и текст и кнопка с кодовым словом"
     )
@@ -1124,12 +1135,12 @@ def process_magnet_video(message, keyword):
     config["magnets"][keyword]["video"] = message.video.file_id  # Сохраняем file_id видео
     save_config(config)
 
+    # Убираем повторный запрос текста
     if config["magnets"][keyword]["content_type"] == "text_with_video_button":
-        bot.reply_to(message, "📝 Введите основной текст:")
-        register_next_step_handler_with_cancel(message, lambda m: process_magnet_main_text_with_button(m, keyword))
+        bot.reply_to(message, "🖋 Введите текст для кнопки:")
+        register_next_step_handler_with_cancel(message, lambda m: process_magnet_button_text(m, keyword))
     else:
-        bot.reply_to(message, "📝 Введите основной текст:")
-        register_next_step_handler_with_cancel(message, lambda m: process_magnet_main_text(m, keyword))
+        bot.reply_to(message, f"✅ Кодовое слово '{keyword}' создано!")
 
 def process_magnet_photo(message, keyword):
     if message.content_type != 'photo':
@@ -1217,6 +1228,9 @@ def handle_keywords(message):
         
         if content_type == "text":
             bot.send_message(message.chat.id, text_content)
+
+        elif content_type == "video_message":
+            bot.send_video_note(message.chat.id, magnet["video_message"])    
         
         elif content_type == "text_with_button":
             markup = InlineKeyboardMarkup()
@@ -1258,6 +1272,8 @@ def handle_keywords(message):
                 button_data = ",".join(keywords)
                 markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
             bot.send_message(message.chat.id, text_content, reply_markup=markup)
+        elif content_type == "video_message":
+             bot.send_video_note(message.chat.id, magnet["video_message"])    
         
         elif content_type == "photo_with_text_keyword_button":
             markup = InlineKeyboardMarkup()
@@ -1287,47 +1303,82 @@ def handle_callback_query(call):
 
             try:
                 if content_type == "text":
-                    bot.send_message(call.message.chat.id, text_content)
+                    if text_content:  # Проверяем, есть ли текст
+                        bot.send_message(call.message.chat.id, text_content)
+                    else:
+                        print(f"❌ Текст отсутствует для кодового слова '{keyword}'")
                 elif content_type == "text_with_button":
                     markup = InlineKeyboardMarkup()
                     button_url = magnet.get("button_url", "")
                     if button_url:
                         markup.add(InlineKeyboardButton(magnet["button_text"], url=button_url))
-                    bot.send_message(call.message.chat.id, text_content, reply_markup=markup)
+                    if text_content:  # Проверяем, есть ли текст
+                        bot.send_message(call.message.chat.id, text_content, reply_markup=markup)
+                    else:
+                        print(f"❌ Текст отсутствует для кодового слова '{keyword}'")
+                elif content_type == "video_message":
+                    bot.send_video_note(call.message.chat.id, magnet["video_message"])
+                    # Текстовое сообщение не отправляется, если текст отсутствует
+                    if text_content:  # Если текст есть, отправляем его
+                        bot.send_message(call.message.chat.id, text_content)
                 elif content_type == "text_with_video":
-                    bot.send_video(call.message.chat.id, magnet["video"], caption=text_content)
+                    if text_content:  # Проверяем, есть ли текст
+                        bot.send_video(call.message.chat.id, magnet["video"], caption=text_content)
+                    else:
+                        print(f"❌ Текст отсутствует для кодового слова '{keyword}'")
                 elif content_type == "text_with_video_button":
                     markup = InlineKeyboardMarkup()
                     button_url = magnet.get("button_url", "")
                     if button_url:
                         markup.add(InlineKeyboardButton(magnet["button_text"], url=button_url))
-                    bot.send_video(call.message.chat.id, magnet["video"], caption=text_content, reply_markup=markup)
+                    if text_content:  # Проверяем, есть ли текст
+                        bot.send_video(call.message.chat.id, magnet["video"], caption=text_content, reply_markup=markup)
+                    else:
+                        print(f"❌ Текст отсутствует для кодового слова '{keyword}'")
                 elif content_type == "text_with_voice":
-                    bot.send_voice(call.message.chat.id, magnet["voice"], caption=text_content)
+                    if text_content:  # Проверяем, есть ли текст
+                        bot.send_voice(call.message.chat.id, magnet["voice"], caption=text_content)
+                    else:
+                        print(f"❌ Текст отсутствует для кодового слова '{keyword}'")
                 elif content_type == "text_with_document":
-                    bot.send_document(call.message.chat.id, magnet["document"], caption=text_content)
+                    if text_content:  # Проверяем, есть ли текст
+                        bot.send_document(call.message.chat.id, magnet["document"], caption=text_content)
+                    else:
+                        print(f"❌ Текст отсутствует для кодового слова '{keyword}'")
                 elif content_type == "photo_with_text":
-                    bot.send_photo(call.message.chat.id, magnet["photo"], caption=text_content)
+                    if text_content:  # Проверяем, есть ли текст
+                        bot.send_photo(call.message.chat.id, magnet["photo"], caption=text_content)
+                    else:
+                        print(f"❌ Текст отсутствует для кодового слова '{keyword}'")
                 elif content_type == "photo_with_text_button":
                     markup = InlineKeyboardMarkup()
                     button_url = magnet.get("button_url", "")
                     if button_url:
                         markup.add(InlineKeyboardButton(magnet["button_text"], url=button_url))
-                    bot.send_photo(call.message.chat.id, magnet["photo"], caption=text_content, reply_markup=markup)
+                    if text_content:  # Проверяем, есть ли текст
+                        bot.send_photo(call.message.chat.id, magnet["photo"], caption=text_content, reply_markup=markup)
+                    else:
+                        print(f"❌ Текст отсутствует для кодового слова '{keyword}'")
                 elif content_type == "text_with_keyword_button":
                     markup = InlineKeyboardMarkup()
                     keywords = magnet.get("keywords", [])
                     if keywords:
                         button_data = ",".join(keywords)
                         markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
-                    bot.send_message(call.message.chat.id, text_content, reply_markup=markup)
+                    if text_content:  # Проверяем, есть ли текст
+                        bot.send_message(call.message.chat.id, text_content, reply_markup=markup)
+                    else:
+                        print(f"❌ Текст отсутствует для кодового слова '{keyword}'")
                 elif content_type == "photo_with_text_keyword_button":
                     markup = InlineKeyboardMarkup()
                     keywords = magnet.get("keywords", [])
                     if keywords:
                         button_data = ",".join(keywords)
                         markup.add(InlineKeyboardButton(magnet["button_text"], callback_data=button_data))
-                    bot.send_photo(call.message.chat.id, magnet["photo"], caption=text_content, reply_markup=markup)
+                    if text_content:  # Проверяем, есть ли текст
+                        bot.send_photo(call.message.chat.id, magnet["photo"], caption=text_content, reply_markup=markup)
+                    else:
+                        print(f"❌ Текст отсутствует для кодового слова '{keyword}'")
                 else:
                     bot.send_message(call.message.chat.id, "❌ Неподдерживаемый тип контента.")
                 found = True
@@ -1343,4 +1394,25 @@ def handle_callback_query(call):
 # Запуск бота
 print("Бот запущен")  # Отладка
 
-bot.polling(none_stop=True)
+while True:
+    try:
+        print("🔄 Бот запущен...")
+        for admin_id in administrators:  # 🔥 Используем готовый список админов
+            try:
+                bot.send_message(admin_id, "✅ Бот успешно запущен!")
+            except:
+                print(f"⚠ Не удалось отправить сообщение админу {admin_id}")
+
+        bot.polling(none_stop=True)
+
+    except Exception as e:
+        error_text = f"❌ Ошибка: {e}\n🔄 Бот перезапускается..."
+        print(error_text)
+
+        for admin_id in administrators:
+            try:
+                bot.send_message(admin_id, error_text)  # 🔥 Отправка ошибки всем администраторам
+            except:
+                print(f"⚠ Не удалось отправить сообщение админу {admin_id}")
+
+        time.sleep(5)  # Подождать 5 секунд перед перезапуском
